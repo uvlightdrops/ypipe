@@ -1,4 +1,5 @@
 from task import Task
+from loopMixin import LoopMixin
 from flowpy.utils import setup_logger
 
 logger = setup_logger(__name__, __name__+'.log')
@@ -11,12 +12,14 @@ class ResourceTask(Task):
     resource = None
     def __init__(self, *args):
         super().__init__(*args)
-        self.sc = self.context['storage_cache']
+        self.storage_cache = self.context['storage_cache']
+        self.sc = self.storage_cache
 
     def get_resource(self):
         return self.resource
     def run(self):
-        return self.resource
+        pass
+        #return self.resource
 
 
 class StorageResourceTask(ResourceTask):
@@ -24,17 +27,21 @@ class StorageResourceTask(ResourceTask):
         super().__init__(*args)
         type = self.config['args']['type']
         name = self.config['name']
+        creds_file = self.config['args']['creds_file']
         src = self.context['data_path'].joinpath(self.config['args']['fn'])
-        pw = open(self.context['config_dir'].joinpath('creds.txt')).read().strip()
+        pw = open(self.context['config_dir'].joinpath(creds_file)).read().strip()
+        logger.debug('res %s type %s from %s', name, type, src)
+        #logger.debug('pw from file %s: %s', creds_file, pw)
 
-        resource = self.sc.get_resource(type, pw=pw)
+        resource = self.sc.get_resource(name, type=type, pw=pw)
         resource.src_or_dst = 'src'
         resource.set_src(src)
+        # Das hier ist net am rechten platz, sollte temporär nur für run methode nötig sein
         self.context[name] = resource
-        self.resource = self.sc.get_resource(type)
+        self.resource = resource
 
 
-class FrameResourceTask(ResourceTask):
+class FrameResourceTask(LoopMixin, ResourceTask):
     """ Provides a frame resource from frame cache"""
     def __init__(self, *args):
         super().__init__(*args)
@@ -44,7 +51,7 @@ class FrameResourceTask(ResourceTask):
     def run(self):
         self.resource = self.context['fc'].get_frame(self.frame_group, self.group)
         self.context[self.config['name']] = self.resource
-        return self.resource
+        #return self.resource
 
 class StoreFrameResourceTask(FrameResourceTask):
     def run(self):
@@ -58,17 +65,10 @@ class ReadFrameResourceTask(FrameResourceTask):
         group = self.config['args'].get('group', None)
         self.frame = self.context['fc'].get_frame(frame_group, group)
         self.context[self.config['name']] = self.frame
-        return self.frame
+        #return self.frame
 
-class CreateFrameTask(Task):
-    def __init__(self, *args):
-        super().__init__(*args)
 
-    def run(self):
-        # Frame erstellen
-        pass
-
-class DebugFrameTask(ResourceTask):
+class DebugFrameResourceTask(FrameResourceTask):
     def __init__(self, *args):
         super().__init__(*args)
 
@@ -94,12 +94,13 @@ class WriteFrameResourceTask(FrameResourceTask):
         super().__init__(*args)
 
     def run(self):
-        logger.debug("writeFrameGroupTask running")
         frame_group = self.config['args']['frame_group']
-        frame = self.context['fc'].get_frame_group(frame_group)
-        self.context['fc'].write_frame_group(frame_group, frame)
+        fg = self.context['fc'].get_frame_group(frame_group)
+        #logger.debug(fg['Alfresco'].head(3))
+        logger.debug('framegroup %s, keys to write: %s', frame_group, fg.keys())
+        self.context['fc'].write_frame_group(frame_group, fg)
         logger.debug("writeFrameGroupTask wrote frame group %s ", frame_group)
-        return frame
+        #return fg
 
 class ExternalResourceTask(ResourceTask):
     def __init__(self, *args):

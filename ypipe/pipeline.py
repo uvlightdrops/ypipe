@@ -20,7 +20,7 @@ from context import Context
 
 logger = setup_logger(__name__, __name__+'.log')
 
-
+DEBUG=True
 pre = 'yp'
 
 class Pipeline(YamlConfigSupport):
@@ -36,23 +36,40 @@ class Pipeline(YamlConfigSupport):
         self.storage_cache = StorageCache(self.storage_broker.st_class_factory, rw='s')
         # DEV tmp
         self.app_name = kwargs['app_name']
+
         self.config_dir = kwargs['config_dir']
         logger.debug('Pipeline init, config_dir: %s', self.config_dir)
         self.master_config_dir = kwargs['master_config_dir']
+
         self.data_path = kwargs['data_path']
         self.phase = ''
         self.sub = self.app_name
         self.options = kwargs['options'] if 'options' in kwargs else {}
-        fnlist = ['kp_si']
+        # XXX DEV
+        fnlist = ['kp_si', 'kp_wanted_logic']
         self.app_type = 'tree'
-        self.cache_configs(fnlist)
+        # YamlConfigSupport
+        # self.cache_configs(fnlist)
 
+    # XXX remove when YamlConfigSupport is cleaned up
     def additional_yaml_config_logic(self):
         pass
 
     def init_from_app(self):
         self.master_config_dir = self.app.config_dir.joinpath(pre)
         self.config_dir = self.app.config_dir.joinpath(pre)
+
+    def init_cfg_from_app(self):
+        # random place to set phase
+        #self.phase = self.app.phase
+        #self.phase_subdir = self.app.phase_subdir
+        kp_list = self.config_list() + ['profile']
+        #print("Pipeline init_cfg_from_app, copying config params:", kp_list)
+        for attr in kp_list:
+            setattr(self, 'cfg_'+attr, getattr(self.app, 'cfg_'+attr))
+        # legacy name
+        setattr(self, 'cfg_si', getattr(self.app, 'cfg_kp_si'))
+        #setattr(self, 'cfg_age', getattr(self.app, 'cfg_age'))
 
     def init_fc_from_app(self):
         # random place to set phase
@@ -64,9 +81,10 @@ class Pipeline(YamlConfigSupport):
             setattr(self.fc, 'cfg_'+attr, getattr(self.app, 'cfg_'+attr))
         # legacy name
         setattr(self.fc, 'cfg_si', getattr(self.app, 'cfg_kp_si'))
-        self.fc.init_framecache()
+        self.fc.init_fc()
+        self.fc.init_fc_bytype()
         self.fc.build_fieldlists(self.fc.cfg_kp_process_fields)
-        self.fc.prep_writer()
+        #self.fc.prep_writer()
 
     # Main work XXX
     def load_task_definitions(self):
@@ -77,6 +95,7 @@ class Pipeline(YamlConfigSupport):
 
     def register_task_def(self, t_def):
         Task.validate_config(t_def)
+        #logger.debug('Registering task: %s', t_def['name'])
         name = t_def['name']
         self.task_defs[name] = t_def
         self.G.add_node(name)
@@ -107,6 +126,7 @@ class Pipeline(YamlConfigSupport):
 
     def prepare_context(self):
         context = Context()
+        context['result'] = None
         context['fc'] = self.fc
         context['app'] = self.app
         context['storage_broker'] = self.storage_broker
@@ -114,6 +134,7 @@ class Pipeline(YamlConfigSupport):
         context['data_path'] = Path(self.data_path).joinpath('data_in', self.app_name)
         context['config_dir'] = self.config_dir
         context['master_config_dir'] = self.master_config_dir
+
         return context
 
     def go_run(self):
@@ -124,13 +145,52 @@ class Pipeline(YamlConfigSupport):
             self.run()
 
     def run(self):
+        #self.render_dag()
         context = self.prepare_context()
         for name in nx.topological_sort(self.G):
-            print(f"Running task: {name}")
-            task = self.create_task(self.task_defs[name], context)
-            result = task.run()
+            task_def = self.task_defs[name]
+            task = self.create_task(task_def, context)
+            logger.debug('---------------- NEXT task_defs:')
+            logger.debug('task %s, action: %s', name, task_def['action'])
+            run_flag = self.task_defs[name].get('run')
+            skip_task = False
+            #logger.debug(f"Task {name} run flag: {run_flag}")
+            #logger.debug(type(run_flag))
 
-            logger.debug(f"Task {name} completed ")
+            if run_flag == False:
+                logger.debug(f"Skipping task {name} as run flag is False")
+                print(f"Skipping task: {name}")
+                continue
+
+
+            loop_items = self.task_defs[name].get('loop_items', None)
+            # logger.debug(f"Task {name} loop_items: {loop_items}")
+
+            requires = task_def.get('req', [])
+            if requires:
+                logger.debug('Task %s requires: %s', name, requires)
+                for r in requires:
+                    if r not in context:
+                        logger.error('Task %s requires %s but not in context!', name, r)
+                        if DEBUG:
+                            print(f"Skipping task {name} due to missing requirement: {r}")
+                            skip_task = True
+                            break
+                        raise RuntimeError(f"Task {name} requires '{r}' but it does not exist in context!")
+                    else:
+                        logger.debug('Task %s got required %s from context', name, r)
+
+            if skip_task:
+                continue
+
+            print(f"Running task: {name}")
+
+            if loop_items:
+                result = task.run_with_loop()
+            else:
+                result = task.run()
+            assert result is None, f"result SHOULD be None (context store) - res.type is: {type(result)} "
+            #logger.debug(f"Task {name} completed ")
             # wenn task einen frame bereitstellt (provide)  im FrameCache speichern
             """
             if task.config.get('provides', None):

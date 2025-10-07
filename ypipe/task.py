@@ -1,7 +1,7 @@
 from yaml_config_support.YamlConfigSupport import YamlConfigSupport
 from taskConfig import TaskModel
 from pydantic import ValidationError
-import os
+import os, sys
 from typing import List
 # from ResourceTask import *
 #from tr2FrTask import DumpGroups
@@ -58,7 +58,22 @@ class Task(YamlConfigSupport):
                     print(f"Fehler in {fname}: {e}")
         return tasks
 
+    def prepare(self):
+        """ subclass """
+        return None
+
     def run(self):
         """ subclass """
         return None
 
+    def stats_init(self):
+        pass
+    def stats_report(self, name):
+        pass
+
+
+class StopTask(Task):
+    def run(self):
+        logger.info(f"StopTask {self.name} reached, stopping pipeline")
+        #raise Exception("StopTask reached, stopping pipeline")
+        sys.exit()
