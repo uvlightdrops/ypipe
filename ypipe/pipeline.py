@@ -3,25 +3,51 @@ from collections import defaultdict
 from rich.console import Console
 from rich.tree import Tree
 from pydantic import ValidationError
-from yaml_config_support import YamlConfigSupport
-from framecache_support import FrameIOandCacheSupport
-from taskConfig import PipelineModel
-from task import Task
-from yldpipeNG.storageBroker import StorageBroker
-from yldpipeNG.storageCache import StorageCache
+from pathlib import Path
 import yaml
 import networkx as nx
-from taskFactory import TaskFactory
-from flowpy.utils import setup_logger
-from pathlib import Path
+from jinja2 import Template
 
-from context import Context
+#import sys
+#print(sys.path)
+from yaml_config_support import YamlConfigSupport
+from framecache_support import FrameIOandCacheSupport
+from yldpipeNG.storageBroker import StorageBroker
+from yldpipeNG.storageCache import StorageCache
+from flowpy.utils import setup_logger
+from .task import Task
+from .taskConfig import PipelineModel
+from .taskFactory import TaskFactory
+from .context import Context
 #from ypipe.test_ypipe import app_name
+
 
 logger = setup_logger(__name__, __name__+'.log')
 
 DEBUG=True
 pre = 'yp'
+
+def get_cfg_context(app):
+    return app.config_d
+    return {k[4:]: v for k, v in app.__dict__.items() if k.startswith('cfg_')}
+
+def render_template(obj, context):
+    if isinstance(obj, str):
+        rendered = Template(obj).render(context)
+        try:
+            parsed = yaml.safe_load(rendered)
+            return parsed
+        except yaml.YAMLError:
+            return rendered
+        #return Template(obj).render(context)
+
+    elif isinstance(obj, dict):
+        return {k: render_template(v, context) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [render_template(item, context) for item in obj]
+    else:
+        return obj
+
 
 class Pipeline(YamlConfigSupport):
     def __init__(self, *args, **kwargs):
@@ -30,67 +56,93 @@ class Pipeline(YamlConfigSupport):
         self.tasks = {}
         self.task_defs = {}
         self.dependencies = defaultdict(list)
+
+        # sub components
         self.G = nx.DiGraph()
         self.fc = FrameIOandCacheSupport()
         self.storage_broker = StorageBroker()
         self.storage_cache = StorageCache(self.storage_broker.st_class_factory, rw='s')
+
         # DEV tmp
+        # kwargs assignments
         self.app_name = kwargs['app_name']
-
+        #self.project_dir = kwargs['project_dir']
         self.config_dir = kwargs['config_dir']
-        logger.debug('Pipeline init, config_dir: %s', self.config_dir)
         self.master_config_dir = kwargs['master_config_dir']
-
         self.data_path = kwargs['data_path']
-        self.phase = ''
         self.sub = self.app_name
+        self.phase = ''
         self.options = kwargs['options'] if 'options' in kwargs else {}
+
         # XXX DEV
-        fnlist = ['kp_si', 'kp_wanted_logic']
+        fnlist = self.load_config('fnlist.yml').get('fnlist')
+        logger.debug('fnlist: %s', fnlist)
+        #fnlist = ['kp_si', 'kp_wanted_logic']
         self.app_type = 'tree'
         # YamlConfigSupport
-        # self.cache_configs(fnlist)
+        #self.cfg_kp_si = self.load_config('kp_si.yml')
+        self.use_legacy_app = kwargs.get('use_legacy_app')
+        logger.debug(f"Pipeline use_legacy_app: {self.use_legacy_app}")
+        if self.use_legacy_app == False:
+            self.cache_configs(fnlist)
+            self.init_config_profile()
 
     # XXX remove when YamlConfigSupport is cleaned up
     def additional_yaml_config_logic(self):
         pass
-
-    def init_from_app(self):
-        self.master_config_dir = self.app.config_dir.joinpath(pre)
-        self.config_dir = self.app.config_dir.joinpath(pre)
 
     def init_cfg_from_app(self):
         # random place to set phase
         #self.phase = self.app.phase
         #self.phase_subdir = self.app.phase_subdir
         kp_list = self.config_list() + ['profile']
-        #print("Pipeline init_cfg_from_app, copying config params:", kp_list)
+        logger.debug('kp_list: %s', kp_list)
         for attr in kp_list:
             setattr(self, 'cfg_'+attr, getattr(self.app, 'cfg_'+attr))
         # legacy name
         setattr(self, 'cfg_si', getattr(self.app, 'cfg_kp_si'))
-        #setattr(self, 'cfg_age', getattr(self.app, 'cfg_age'))
+
+    def init_fc(self):
+        if self.use_legacy_app:
+            #logger.debug("Pipeline init_fc using legacy app")
+            self.init_fc_from_app()
+        elif self.use_legacy_app == False:
+            #logger.debug("Pipeline init_fc without app")
+            self.init_fc_wo_app()
+        else:
+            raise RuntimeError("Pipeline init_fc: use_legacy_app not set!")
+
+        kp_list = self.config_list() + ['profile']
+        logger.debug('kp_list: %s', kp_list)
+        for attr in kp_list:
+            setattr(self.fc, 'cfg_'+attr, getattr(self, 'cfg_'+attr))
+        # legacy name
+        setattr(self.fc, 'cfg_si', getattr(self, 'cfg_kp_si'))
+
+        self.fc.init_framecache() # ex
+        self.fc.init_fc_bytype()
+        self.fc.build_fieldlists(self.fc.cfg_kp_process_fields)
+
+    def init_fc_wo_app(self):
+        # XXX dev
+        self.fc.phase = 'p1'
+        self.fc.phase_subdir = 'p1'
 
     def init_fc_from_app(self):
         # random place to set phase
         self.fc.phase = self.app.phase
         self.fc.phase_subdir = self.app.phase_subdir
-        kp_list = self.config_list() + ['profile']
-        #print("Pipeline init_fc_from_app, copying config params:", kp_list)
-        for attr in kp_list:
-            setattr(self.fc, 'cfg_'+attr, getattr(self.app, 'cfg_'+attr))
-        # legacy name
-        setattr(self.fc, 'cfg_si', getattr(self.app, 'cfg_kp_si'))
-        self.fc.init_fc()
-        self.fc.init_fc_bytype()
-        self.fc.build_fieldlists(self.fc.cfg_kp_process_fields)
-        #self.fc.prep_writer()
+
 
     # Main work XXX
     def load_task_definitions(self):
         print("---------- REGISTER TASKS ------------")
         for t_def in self.config.get('tasks', []):
-            self.register_task_def(t_def)
+            cfg_context = self.config_d
+            #cfg_context = get_cfg_context(self.app)
+            t_def_rendered = render_template(t_def, cfg_context)
+            logger.debug(t_def_rendered)
+            self.register_task_def(t_def_rendered)
 
 
     def register_task_def(self, t_def):
@@ -103,15 +155,18 @@ class Pipeline(YamlConfigSupport):
             self.G.add_edge(dep, t_def['name'])
 
     # XXX replace with method of YamlConfigSupport?
+    """
     def load_config_master(self, filename):
         path = self.master_config_dir.joinpath(filename)
         with open(path) as f:
             #logger.debug('loading config file %s from dir %s', f.name, self.config_dir)
             config = yaml.safe_load(f)
         return config
+    """
 
     def load_pipeline_config(self):
-        self.config = self.load_config_master(self.name+'.yml')
+        self.config = self.load_config(self.name+'.yml')
+        #self.config = self.load_config_master(self.name+'.yml')
         try:
             model = PipelineModel(**self.config)
         except ValidationError as e:
@@ -128,10 +183,12 @@ class Pipeline(YamlConfigSupport):
         context = Context()
         context['result'] = None
         context['fc'] = self.fc
-        context['app'] = self.app
+        if self.use_legacy_app:
+            context['app'] = self.app
         context['storage_broker'] = self.storage_broker
         context['storage_cache'] = self.storage_cache
         context['data_path'] = Path(self.data_path).joinpath('data_in', self.app_name)
+        context['project_dir'] = self.project_dir
         context['config_dir'] = self.config_dir
         context['master_config_dir'] = self.master_config_dir
 
@@ -173,7 +230,8 @@ class Pipeline(YamlConfigSupport):
                     if r not in context:
                         logger.error('Task %s requires %s but not in context!', name, r)
                         if DEBUG:
-                            print(f"Skipping task {name} due to missing requirement: {r}")
+                            logger.debug('Task %s skipping', name)
+                            #print(f"Skipping task {name} due to missing requirement: {r}")
                             skip_task = True
                             break
                         raise RuntimeError(f"Task {name} requires '{r}' but it does not exist in context!")

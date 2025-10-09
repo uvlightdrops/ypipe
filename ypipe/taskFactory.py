@@ -1,29 +1,41 @@
-from tt import *
-#from resourceTask import ResourceTask, FrameResourceTask, DebugFrameTask
-#from resourceTask import TransformTask, StorageResourceTask
-#from resourceTask import StoreFrameResourceTask, ReadFrameResourceTask
-#from tr2FrTask import DumpGroups
-#from resourceTask import WriteFrameResourceTask
+from .tt import *
 import inspect
-from tr2FrTask import *
-from resourceTask import *
-from readerTask import *
-from task import * # Task
+#from .tr2FrTask import *
+from .resourceTask import *
+from .readerTask import *
+from .task import * # Task
 
 from flowpy.utils import setup_logger
 logger = setup_logger(__name__, __name__+'.log')
 
 # Module-Liste anpassen
-import tr2FrTask
-import resourceTask
-import readerTask
-import task
+#import tr2FrTask
+import ypipe.resourceTask as resourceTask
+import ypipe.readerTask as readerTask
+import ypipe.task as task
+
+import os
+import importlib
+import inspect
+
+
+
+def import_task_modules_from_dir(directory):
+    modules = []
+    for filename in os.listdir(directory):
+        if filename.endswith('.py') and not filename.startswith('__'):
+            modulename = filename[:-3]
+            logger.debug(f"Importing module {modulename} from {directory}")
+            modul = importlib.import_module(f"{directory}.{modulename}")
+            logger.debug(f"Imported module: {modul}")
+            modules.append(modul)
+    return modules
 
 
 def get_task_classes(modules):
     task_classes = {}
     for module in modules:
-        logger.debug("Inspecting module %s", module)
+        #logger.debug("Inspecting module %s", module)
         for name, obj in inspect.getmembers(module):
             if inspect.isclass(obj) and name.endswith('Task') and name != 'Task':
                 tmp = name[:-4]
@@ -32,8 +44,15 @@ def get_task_classes(modules):
                 task_classes[key] = obj
     return task_classes
 
-mapp = get_task_classes([tr2FrTask, resourceTask, readerTask, task])
+
+# Beispiel: tasks aus dem Unterverzeichnis 'extra_tasks' laden
+extra_modules = import_task_modules_from_dir('custom_tasks')
+all_modules = [resourceTask, readerTask, task] + extra_modules
+
+mapp = get_task_classes(all_modules)
 logger.debug(mapp.keys())
+#for k, v in mapp.items():
+#    logger.debug(f"'{k}' => {v}")
 
 class TaskFactory:
 

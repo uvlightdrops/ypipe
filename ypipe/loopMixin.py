@@ -14,6 +14,13 @@ class LoopMixin:
         return results
     """
 
+    def prepare(self):
+        logger.debug('using loop_item from context: %s', self.context['loop_item'])
+        if self.context.get('loop_item', None):
+            self.group = self.context['loop_item']
+        else:
+            self.group = self.config['args']['group']
+
     def run_with_loop(self):
         results_d = {}
         # XXX relate to inits from base classes later
@@ -25,6 +32,8 @@ class LoopMixin:
 
         if provides:
             provide = provides[0]
+        else:
+            provide = ''
         logger.debug("Storing stub for provided %s in context", provide)
         self.context[provide] = 'Stub'
 

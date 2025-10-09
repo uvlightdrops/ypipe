@@ -1,0 +1,4 @@
+# maybe from others already
+pydantic
+rich
+click

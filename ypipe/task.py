@@ -1,12 +1,15 @@
-from yaml_config_support.YamlConfigSupport import YamlConfigSupport
-from taskConfig import TaskModel
 from pydantic import ValidationError
 import os, sys
 from typing import List
+from yaml_config_support import YamlConfigSupport
+from .taskConfig import TaskModel
 # from ResourceTask import *
 #from tr2FrTask import DumpGroups
 
 from flowpy.utils import setup_logger
+
+from ypipe.loopMixin import LoopMixin
+
 logger = setup_logger(__name__, __name__+'.log')
 
 
@@ -17,6 +20,10 @@ class Task(YamlConfigSupport):
         #self.pipeline = pipeline
         self.context = context
         logger.debug(self.context.keys())
+
+        # XXX args from yaml not confuse with function args
+        self.args = self.config.get('args', {})
+        self.req = self.config.get('req', [])
 
     def __repr__(self):
         return f"Task(name={self.name}"
@@ -77,3 +84,8 @@ class StopTask(Task):
         logger.info(f"StopTask {self.name} reached, stopping pipeline")
         #raise Exception("StopTask reached, stopping pipeline")
         sys.exit()
+
+class EchoTask(LoopMixin, Task):
+    def run(self):
+        value = self.args['in']
+        print("ECHO: ", value)

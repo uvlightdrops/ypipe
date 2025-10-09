@@ -1,4 +1,4 @@
-from task import Task
+from .task import Task
 from flowpy.utils import setup_logger, log_memory_usage
 logger = setup_logger(__name__, __name__+'.log')
 
