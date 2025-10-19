@@ -1,8 +1,8 @@
 from pydantic import ValidationError
 import os, sys
 from typing import List
-from yaml_config_support import YamlConfigSupport
-from .taskConfig import TaskModel
+from yaml_config_support.yamlConfigSupport import YamlConfigSupport
+from .taskConfig import TaskModel, MtaskModel
 # from ResourceTask import *
 #from tr2FrTask import DumpGroups
 
@@ -12,18 +12,20 @@ from ypipe.loopMixin import LoopMixin
 
 logger = setup_logger(__name__, __name__+'.log')
 
-
-class Task(YamlConfigSupport):
+# XXX why inherit from YamlConfigSupport?
+# overhead !
+class Task: #(YamlConfigSupport):
     def __init__(self, name: str, config: dict = None, context: 'Context' = None):
         self.name = name
         self.config = config if config is not None else {}
         #self.pipeline = pipeline
         self.context = context
-        logger.debug(self.context.keys())
+        #logger.debug(self.context.keys())
 
         # XXX args from yaml not confuse with function args
         self.args = self.config.get('args', {})
-        self.req = self.config.get('req', [])
+        self.req_resources = self.config.get('req_resources', [])
+        self.provides = self.config.get('provides', [])
 
     def __repr__(self):
         return f"Task(name={self.name}"
@@ -45,12 +47,14 @@ class Task(YamlConfigSupport):
 
     @staticmethod
     def validate_config(t_def) -> TaskModel:
-        #print(f"Validating config for task {t_def.get('name', '<unnamed>')}")
+        #logger.debug(f"Validating config for task {t_def.get('name', '<unnamed>')}")
         try:
             tc = TaskModel(**t_def)
         except ValidationError as e:
-            print(f"Validation error in task: {e}")
-            print(e.errors())
+            #print(e.errors())
+            logger.debug('t_def %s has ValidationError: %s', t_def['name'], e)
+            logger.debug('So Now we try validating with MtaskModel')
+            tc = MtaskModel(**t_def)
 
     # not needed (yet?)
     @staticmethod
@@ -87,5 +91,25 @@ class StopTask(Task):
 
 class EchoTask(LoopMixin, Task):
     def run(self):
-        value = self.args['in']
+        value = self.item
         print("ECHO: ", value)
+
+
+class FileTask(Task):
+    pass
+
+class CopyFileTask(FileTask):
+    def run(self):
+        import shutil
+        di_path = self.context['data_in_path']
+        src = self.args.get('src', None)
+        dst = self.args.get('dst', None)
+        if not src or not dst:
+            logger.error("CopyFileTask needs src and dst args")
+            return
+        srcpath = di_path.joinpath(src)
+        dstpath = di_path.joinpath(dst)
+        shutil.copy(srcpath, dstpath)
+        logger.info(f"Copied file from {src} to {dst}")
+
+

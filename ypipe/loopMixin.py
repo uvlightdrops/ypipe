@@ -14,7 +14,9 @@ class LoopMixin:
         return results
     """
 
-    def prepare(self):
+    ## XXX rename to prepare_loop or so
+    def prepare(self, *args, **kwargs):
+        #logger.debug("LoopMixin.prepare args: %s, kwargs: %s", args
         logger.debug('using loop_item from context: %s', self.context['loop_item'])
         if self.context.get('loop_item', None):
             self.group = self.context['loop_item']
@@ -26,16 +28,11 @@ class LoopMixin:
         # XXX relate to inits from base classes later
         items = self.config.get('loop_items', [])
         logger.debug("LoopMixin.run_with_loop items: %s", items)
-        provides = self.config.get('provides', None)
-        provided_d = self.config.get('provided_d', None)
         provide_dict = self.config.get('provide_dict', False)
 
-        if provides:
-            provide = provides[0]
-        else:
-            provide = ''
-        logger.debug("Storing stub for provided %s in context", provide)
-        self.context[provide] = 'Stub'
+        if self.provides:
+            provide = self.provides[0]
+            self.context[provide] = None
 
         if provide_dict:
             self.context[provide + '_d'] = {}
@@ -44,8 +41,9 @@ class LoopMixin:
             logger.error("No loop_items defined in config for task %s", self.config.get('name', 'unknown'))
 
         for item in items:
+            self.item = item
             self.context['loop_item'] = item
-            #logger.debug("call run - and loop_item is %s", item)
+            logger.debug("call run - and loop_item is %s", item)
 
             self.run()
 
@@ -58,6 +56,8 @@ class LoopMixin:
                     logger.debug("Storing stub for provided %s in context", p)
                     self.context[p] = 'Stub'
                 """
-
+            # XXX useless ? or at beinning?
             self.context['result'] = None
 
+        logger.debug(self.context['loop_item'])
+        #self.context.pop('loop_item', None)

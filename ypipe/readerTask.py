@@ -14,9 +14,8 @@ class DbReaderTask(ReaderTask):
         super().__init__(*args)
         type = self.config['args']['type']
         self.resource = self.sc.get_resource(self.config['args']['in'], type=type, rws='r')
-        self.resource.set_src_dir(self.context['data_path'])
-        self.context[self.config['name']] = self.resource
+        self.resource.set_src_dir(self.context['data_in_path'])
 
     def run(self):
-        self.resource.read()
-        return self.resource
+        self.resource.read(self.args['fn'])
+        self.context[self.provides[0]] = self.resource
