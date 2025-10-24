@@ -43,7 +43,9 @@ class StoreFrameResourceTask(FrameResourceTask):
             logger.debug("store simple frame in frame group %s, group %s",  self.frame_group_name, self.group)
             frame = self.context[self.config['args']['in']]
             self.context['fc'].store_frame(self.frame_group_name, self.group, frame)
-            self.context[self.provides[0]] = frame
+            logger.debug('provides: %s', self.provides)
+            if self.provides:
+                self.context[self.provides[0]] = frame
 
 
 class ReadFrameResourceTask(FrameResourceTask):
