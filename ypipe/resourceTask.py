@@ -17,7 +17,6 @@ class ResourceTask(Task):
         self.sc = self.storage_cache
 
         self.fn = self.args.get('fn', '')
-        self.path = self.context['data_in_path'].joinpath(self.fn)
         self.type = self.args.get('type', None)
         self.ctx_key = self.args.get('ctx_key', None)
 

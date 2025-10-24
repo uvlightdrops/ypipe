@@ -67,10 +67,13 @@ class StorageResourceTask(ResourceTask):
         kwargs = {'pw': pw, } #'filename': self.f}
         # key of cache is name of resource, only here
         resource = self.sc.get_resource(self.name, type=self.type, **kwargs)
-        resource.set_src(self.path)
-        # random
-        resource.src_or_dst = 'src'
-        #resource.set_src(self.fn)
+        sod = self.args.get('src_or_dst', 'src')
+
+        sod_path_key = 'data_in_path' if sod == 'src' else 'data_out_path'
+        path = self.context[sod_path_key].joinpath(self.fn)
+        resource.set_src(path)
+        resource.src_or_dst = sod
+
         # Das hier ist net am rechten platz, sollte temporär nur für run methode nötig sein
         logger.debug("SRT - resource assign to context key %s", self.provides[0])
         self.context[self.provides[0]] = resource
