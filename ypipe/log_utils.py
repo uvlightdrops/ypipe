@@ -13,5 +13,5 @@ def log_context(context, msg):
         msg = msg[:20]
     keys_hide = set(['result', 'fc', 'app', 'storage_broker', 'storage_cache', 'data_path', 'project_dir', 'config_dir',
                      'master_config_dir', 'config_d'])
-    logger.debug('---> %s ctx %s', msg, [k for k in context.keys() if k not in keys_hide] )
+    #logger.debug('---> %s ctx %s', msg, [k for k in context.keys() if k not in keys_hide] )
 
