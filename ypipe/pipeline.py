@@ -81,6 +81,7 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
     def __init__(self, *args, **kwargs):
         self._args = args
         self._kwargs = kwargs
+        logger.debug('kwargs: %s', kwargs)
         self.tasks = {}
         self.task_defs = {}
         self.dependencies = defaultdict(list)
@@ -93,12 +94,13 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
 
         # DEV tmp
         # kwargs assignments
-        self.app_name = kwargs['app_name']
-        #self.project_dir = kwargs['project_dir']
-        self.config_dir = kwargs['config_dir']
-        self.master_config_dir = kwargs['master_config_dir']
-        self.data_path = kwargs['data_path']
-        self.pl_name = kwargs.get('pl_name', 'yp_pipe')
+        self.app_name = kwargs.get('app_name', 'stubapp')
+        self.project_dir = kwargs.get('project_dir', Path.cwd())
+        self.master_config_dir = kwargs.get('master_config_dir', Path.cwd().joinpath('data_master'))
+        self.config_dir = self.master_config_dir.joinpath(self.app_name)
+        self.data_path = kwargs.get('data_path')
+        self.plname = kwargs.get('plname', 'yp_default')
+        logger.debug(f"Pipeline init: app_name={self.app_name}, pl_name={self.plname}, data_path={self.data_path}")
         self.sub = self.app_name
         self.phase = ''
         self.options = kwargs['options'] if 'options' in kwargs else {}
@@ -118,24 +120,15 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
             self.cache_configs(fnlist)
             self.init_config_profile()
 
-        self.config = self.load_config(self.pl_name + '.yml')
+        if not self.config_dir.joinpath(self.plname + '.yml').exists():
+            raise RuntimeError(f"Pipeline init: config file {self.plname + '.yml'} not found in {self.config_dir}!")
+
+        self.config = self.load_config(self.plname + '.yml')
+
 
     # XXX ok to have the KpctrlBusinessLogic class and include the method from there?
     #def additional_yaml_config_logic(self):
     #    pass
-
-    """
-    def init_cfg_from_app(self):
-        # random place to set phase
-        #self.phase = self.app.phase
-        #self.phase_subdir = self.app.phase_subdir
-        kp_list = self.config_list() + ['profile']
-        #logger.debug('kp_list: %s', kp_list)
-        for attr in kp_list:
-            setattr(self, 'cfg_'+attr, getattr(self.app, 'cfg_'+attr))
-        # legacy name
-        setattr(self, 'cfg_si', getattr(self.app, 'cfg_kp_si'))
-    """
 
     def init_fc(self):
         if self.use_legacy_app:
@@ -162,8 +155,17 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
     # Main work XXX
     def load_task_definitions(self):
         print("---------- REGISTER TASKS ------------")
+        dummy_ctx = self.prepare_context()
         for t_def in self.config.get('tasks', []):
-            t_def_rendered = render_template(t_def, self.config_d)
+            # Build minimal template context: start with config_d, then add a few
+            # scalar values from the runtime context so templates can use
+            # {{data_in_path}}, {{data_out_path}}, {{app_name}}, etc.
+            templ_d = dict(self.config_d) if isinstance(self.config_d, dict) else {}
+            for key in ('data_path', 'data_in_path', 'data_out_path', 'project_dir', 'config_dir', 'master_config_dir', 'app_name'):
+                if key in dummy_ctx:
+                    templ_d[key] = dummy_ctx[key]
+
+            t_def_rendered = render_template(t_def, templ_d)
             yd = yaml.dump(t_def_rendered)
             #logger.debug(yd)
             self.register_task_def(t_def_rendered)
@@ -172,6 +174,7 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
     def register_task_def(self, t_def):
         Task.validate_config(t_def)
         #logger.debug('Registering task: %s', t_def['name'])
+        # XXX click.secho later in two colors split by underscore
         name = t_def['name']
         self.task_defs[name] = t_def
         self.G.add_node(name)
@@ -193,12 +196,15 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
             context['app'] = self.app
         context['storage_broker'] = self.storage_broker
         context['storage_cache'] = self.storage_cache
+        context['data_path'] = self.data_path
         context['data_in_path'] = Path(self.data_path).joinpath('data_in', self.app_name)
         context['data_out_path'] = Path(self.data_path).joinpath('data_out', self.app_name)
         context['project_dir'] = self.project_dir
         context['config_dir'] = self.config_dir
         context['master_config_dir'] = self.master_config_dir
         context['config_d'] = self.config_d
+        # expose app_name for tasks
+        context['app_name'] = self.app_name
 
         return context
 
@@ -348,7 +354,8 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
             return
 
         print(f"Running task: {name}")
-        logger.debug(f"Task {name} starting, loop_items: {loop_items}")
+        logger.debug(f"Start {task.__class__}")
+        logger.debug(f"loop_items: {loop_items}")
         if loop_items:
             task.run_with_loop()
         else:

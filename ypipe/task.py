@@ -2,6 +2,7 @@ from pydantic import ValidationError
 import os, sys
 from typing import List
 from yaml_config_support.yamlConfigSupport import YamlConfigSupport
+
 from .taskConfig import TaskModel, MtaskModel
 # from ResourceTask import *
 #from tr2FrTask import DumpGroups
@@ -55,6 +56,7 @@ class Task: #(YamlConfigSupport):
             logger.debug('t_def %s has ValidationError: %s', t_def['name'], e)
             logger.debug('So Now we try validating with MtaskModel')
             tc = MtaskModel(**t_def)
+        return tc
 
     # not needed (yet?)
     @staticmethod
@@ -101,15 +103,45 @@ class FileTask(Task):
 class CopyFileTask(FileTask):
     def run(self):
         import shutil
-        di_path = self.context['data_in_path']
-        src = self.args.get('src', None)
-        dst = self.args.get('dst', None)
+        from pathlib import Path
+
+        src = self.args.get('src')
+        dst = self.args.get('dst')
         if not src or not dst:
             logger.error("CopyFileTask needs src and dst args")
             return
-        srcpath = di_path.joinpath(src)
-        dstpath = di_path.joinpath(dst)
-        shutil.copy(srcpath, dstpath)
-        logger.info(f"Copied file from {src} to {dst}")
+        """
+        # Resolve data_path and app_name from context (attr or dict)
+        ctx = self.context
+        data_path = None
+        data_path = self.context.get('data_path')
+        logger.debug(f"CopyFileTask using data_path: {data_path}, join {src} -> {dst}")
+        # cast to path object if not yet one
+        if not isinstance(data_path, Path):
+            data_path = Path(data_path)
 
+        app_name = self.context.get('app_name')
+        srcpath = data_path.joinpath(src)
+        dstpath = data_path.joinpath(dst)
+        """
+        srcpath = Path(src)
+        dstpath = Path(dst)
+
+        try:
+            if not srcpath.exists():
+                logger.error("Source does not exist: %s", srcpath)
+                return
+
+            # Ensure destination directory exists
+            dstpath.parent.mkdir(parents=True, exist_ok=True)
+
+            # Atomic copy: copy to a temp file in the destination dir, then replace
+            tmp_name = dstpath.name + f'.{os.getpid()}.tmp'
+            tmp_path = dstpath.parent.joinpath(tmp_name)
+            shutil.copy2(srcpath, tmp_path)
+            os.replace(str(tmp_path), str(dstpath))
+
+            logger.info(f"Copied file from {srcpath} to {dstpath}")
+        except Exception as e:
+            logger.exception("Failed to copy file: %s", e)
 
