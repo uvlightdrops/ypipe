@@ -123,4 +123,6 @@ class TaskFactory:
             return ResourceTask(t_def['name'], t_def, context)
         else:
             logger.debug(f"Unknown task action/type: {action}/{t_def.get('type')}, using base Task class")
-            return Task(t_def['name'], t_def, context)
+            # raise generic exception to find out quicker during dev
+            raise Exception(f"Unknown task action/type: {action}/{t_def.get('type')}")
+            # return Task(t_def['name'], t_def, context)
