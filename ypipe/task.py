@@ -10,6 +10,7 @@ from .taskConfig import TaskModel, MtaskModel
 from flowpy.utils import setup_logger
 
 from ypipe.loopMixin import LoopMixin
+from ypipe.log_utils import log_context
 
 logger = setup_logger(__name__, __name__+'.log')
 
@@ -145,5 +146,12 @@ class CopyFileTask(FileTask):
         except Exception as e:
             logger.exception("Failed to copy file: %s", e)
 
+
+class DebugContextTask(Task):
+    def run(self):
+        log_context(self.context, f"DebugContextTask {self.name}")
+        logger.debug("DebugContextTask context keys: %s", self.context.keys())
+        #for k, v in self.context.items():
+        #    logger.debug("  %s: %s", k, v)
 
 

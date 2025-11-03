@@ -26,6 +26,14 @@ def log_context(context, msg):
     keys_obj = set(context_keys.get('obj', []))
     keys_cfg = set(context_keys.get('cfg', []))
     keys_path = set(context_keys.get('path', []))
+    keys_result = set(context_keys.get('result', []))
 
-    keys_hide = keys_obj | keys_cfg | keys_path
-    logger.debug('---> %s ctx %s', msg, [k for k in context.keys() if k not in keys_hide])
+    keys_hide = keys_obj | keys_cfg | keys_path |keys_result
+    #logger.debug('---> %s ctx %s', msg, [k for k in context.keys() if k not in keys_hide])
+    logger.debug('----------- %s', msg.strip())
+    for k in context.keys():
+        if k not in keys_hide:
+            logger.debug('     ctx[%s]: %s', k, type(context[k]))
+            if type(context[k]) == type({}):
+                logger.debug('     keys: %s', context[k].keys())
+
