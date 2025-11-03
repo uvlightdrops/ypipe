@@ -49,9 +49,12 @@ class IncludePipelineTask(Task):
         # normalize to list or doc with 'tasks'
         if isinstance(sub_doc, dict) and 'tasks' in sub_doc and isinstance(sub_doc['tasks'], list):
             task_defs = sub_doc['tasks']
-        elif isinstance(sub_doc, list):
-            task_defs = sub_doc
-            sub_doc = {'tasks': task_defs}
+        else:
+            raise ValueError("IncludePipelineTask include YAML must be a dict with 'tasks' list")
+        sub_doc = {
+            'tasks': task_defs,
+            'config_d': self.context['config_d'],
+        }
 
         # create sub-pipeline via factory, sharing heavy components
         parent_components = {

@@ -173,6 +173,7 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
 
         # carry over any precomputed config dicts that may be used by prepare_context
         p.config_d = doc.get('config_d', {})
+        log_context(p.config_d, "Pipeline.from_config_doc config_d")
         p.config = doc
 
         return p
@@ -221,35 +222,27 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
     def load_task_definitions(self):
         print("---------- REGISTER TASKS ------------")
         # we could init the real ongoing context here already?
-        dummy_ctx = self.prepare_context()
+        task_defs = self.config.get('tasks', [])
+        self.register_task_defs_from_list(task_defs)
 
-        for t_def in self.config.get('tasks', []):
-            # Build minimal template context: start with config_d, then add a few
-            # scalar values from the runtime context so templates can use
-            # {{data_in_path}}, {{data_out_path}}, {{app_name}}, etc.
-            templ_d = dict(self.config_d)
-            for key in (context_keys.get('path', set()) | context_keys.get('meta', set())):
-                if key in dummy_ctx:
-                    templ_d[key] = dummy_ctx[key]
-                else:
-                    logger.debug(f"load_task_definitions: key {key} not in dummy_ctx")
-            # store dummy context for later use as real context
-            # self.dummy_ctx = dummy_ctx
-
-            t_def_rendered = render_template(t_def, templ_d)
-            #yd = yaml.dump(t_def_rendered)
-            #logger.debug(yd)
-            #logger.debug('------------------------------------------------')
-            self.register_task_def(t_def_rendered)
-
-
-    def register_task_defs_from_list(self, task_defs, templ_d: dict = None):
+    def register_task_defs_from_list(self, task_defs, *args, **kwargs):
         """Rendern und registrieren einer Liste von task-definitions in dieser Pipeline.
-
-        templ_ctx: Kontext für Template-Rendering. Falls None, wird self.prepare_context() genutzt.
+        templ_d: für Template-Rendering.
         """
-        if templ_d is None:
-            templ_d = self.prepare_context()
+        # prepare all config files accessible for template rendering
+        templ_d = dict(self.config_d)
+        log_context(templ_d, "Template context from config_d")
+        # add selected context keys
+        dummy_ctx = self.prepare_context()
+        log_context(dummy_ctx, 'Dummy context for templating')
+        keys_l = (context_keys.get('path', set()) | context_keys.get('meta', set()))
+        logger.debug(f"load_task_definitions: adding context keys for templating: {keys_l}")
+        for key in keys_l:
+            if key in dummy_ctx:
+                templ_d[key] = dummy_ctx[key]
+            else:
+                logger.debug(f"load_task_definitions: key {key} not in dummy_ctx")
+        log_context(templ_d, "Template context for task definitions")
 
         for t_def in task_defs:
             t_def_rendered = render_template(t_def, templ_d)
@@ -297,54 +290,6 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
         return context
 
 
-    # not sure what we want with this method
-    # used when running sub-pipelines to merge parent context keys
-    def prepare_context_with_parent(self, context=None):
-        if context is None:
-            context = self.prepare_context()
-        # If a parent context was provided when this Pipeline was created, merge
-        # over selected keys so nested sub-pipelines can see them (e.g. _include_seen).
-        parent_ctx = getattr(self, '_parent_ctx', None)
-        if isinstance(parent_ctx, dict):
-            # Merge include-seen set specially (union)
-            if '_include_seen' in parent_ctx:
-                raw_seen = parent_ctx.get('_include_seen')
-                try:
-                    parent_seen = set(map(str, raw_seen))
-                except Exception:
-                    parent_seen = set()
-                existing = context.get('_include_seen') or set()
-                context['_include_seen'] = set(existing) | parent_seen
-            # For other keys, only copy when missing to avoid overwriting pipeline-local values
-            for k, v in parent_ctx.items():
-                if k == '_include_seen':
-                    continue
-                if k not in context:
-                    context[k] = v
-
-        return context
-
-    # Run a specific task by name, including its requirements
-    # context is prepared here if not given by caller (eg for run_all)
-    def run_task_by_name(self, task_name):
-        context = self.prepare_context()
-        #self.walk_dependencies(task_name, context)
-        self.walk_resource_dependencies(task_name, context)
-
-    """
-    def walk_dependencies(self, task_name, context):
-        task_def = self.task_defs[task_name]
-
-        # Run requirements # XXX if needed?
-        req_tasks = task_def.get('req_tasks', [])
-        if not req_tasks:
-            logger.debug(f"Task {task_name} has no requirements, running directly")
-            self._run_task(task_name, context)
-            return
-        else:
-            for dep_name in req_tasks:
-                self.walk_dependencies(dep_name, context)
-    """
     def walk_resource_dependencies(self, task_name, context, stack=None, done=None):
         """
         Rekursive Abarbeitung von resourcen-basierten Abhängigkeiten.
@@ -434,16 +379,13 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
 
             ### RUN the innner task method
             last_task = self._run_task(name, context)
-            #self.run_task_by_name(name) #, context=context)
-
+            """
             if hasattr(self, 'context_result_subpipeline'):
                 # re-use updated context from last task run
                 context = self.context_result_subpipeline
                 log_context(context, "XXXXXX Reused context_result_sub before task "+name)
                 del(self.context_result_subpipeline)
             """
-            """
-
 
         if last_task:
             logger.debug(">>> LAST TASK was %s", last_task.name)
