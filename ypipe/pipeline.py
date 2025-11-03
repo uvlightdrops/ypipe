@@ -18,14 +18,14 @@ from .task import Task
 from .taskFactory import TaskFactory
 from .context import Context
 #from ypipe.test_ypipe import app_name
-from .utils import log_context
+from .log_utils import log_context
 
 logger = setup_logger(__name__, __name__+'.log')
-print("Logger for pipeline set up.", logger)
-
+#print("Logger for pipeline set up.", logger._logfile)
 DEBUG=True
 pre = 'yp'
 
+from .context_keys import context_keys
 
 def get_cfg_context(app):
     # Return the prepared config dict from app
@@ -51,6 +51,10 @@ def render_template(obj, context):
 class KpctrlBusinessLogic:
     # plugin method for YamlConfigSupport
     def additional_yaml_config_logic(self):
+        # Only apply additional logic for apps that use 'tree' storage
+        if getattr(self, 'app_type', None) != 'tree':
+            logger.debug('Skipping additional_yaml_config_logic because app_type != tree')
+            return
         # groups with own wanted_logic cfg file
         yml_list = self.config_dir.glob('group_logic_*.yml')
         done = []
@@ -81,7 +85,7 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
     def __init__(self, *args, **kwargs):
         self._args = args
         self._kwargs = kwargs
-        logger.debug('kwargs: %s', kwargs)
+        #logger.debug('kwargs: %s', kwargs)
         self.tasks = {}
         self.task_defs = {}
         self.dependencies = defaultdict(list)
@@ -94,8 +98,9 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
 
         # DEV tmp
         # kwargs assignments
+        self.repo = kwargs.get('repo', None)
         self.app_name = kwargs.get('app_name', 'stubapp')
-        self.project_dir = kwargs.get('project_dir', Path.cwd())
+        self.project_dir = kwargs.get('project_dir', self.repo.joinpath(self.app_name))
         self.master_config_dir = kwargs.get('master_config_dir', Path.cwd().joinpath('data_master'))
         self.config_dir = self.master_config_dir.joinpath(self.app_name)
         self.data_path = kwargs.get('data_path')
@@ -104,17 +109,18 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
         self.sub = self.app_name
         self.phase = ''
         self.options = kwargs['options'] if 'options' in kwargs else {}
+        self.is_subpipeline = kwargs.get('is_subpipeline', False)
 
         # XXX DEV
         fnlist = self.load_config('fnlist.yml').get('fnlist')
         #logger.debug('fnlist: %s', fnlist)
         #fnlist = ['kp_si', 'kp_wanted_logic']
-        self.app_type = 'tree'
+        self.app_type = kwargs.get('app_type', 'tree')
         # YamlConfigSupport
         #self.cfg_kp_si = self.load_config('kp_si.yml')
 
         self.use_legacy_app = kwargs.get('use_legacy_app')
-        logger.debug(f"Pipeline use_legacy_app: {self.use_legacy_app}")
+        #logger.debug(f"Pipeline use_legacy_app: {self.use_legacy_app}")
         if self.use_legacy_app == False:
             # so we use out own config loading from YamlConfigSupport
             self.cache_configs(fnlist)
@@ -124,6 +130,76 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
             raise RuntimeError(f"Pipeline init: config file {self.plname + '.yml'} not found in {self.config_dir}!")
 
         self.config = self.load_config(self.plname + '.yml')
+
+    # --- Kleine Pipeline-Factory-Methoden für Sub-Pipelines (vermeiden Duplikate) ---
+    @classmethod
+    def from_config_doc(cls, doc, *, repo=None, app_name=None, data_path=None, plname=None, parent_components: dict = None):
+        """Erzeuge eine minimal konfiguriere Pipeline aus einem geladenen config-dict.
+
+        - doc: bereits geparstes YAML (dict)
+        - parent_components: optionaler dict mit 'fc', 'storage_broker', 'storage_cache' um Ressourcen zu teilen
+        """
+        p = object.__new__(cls)
+
+        # minimale interne Felder
+        p._args = ()
+        p._kwargs = {}
+        p.tasks = {}
+        p.task_defs = {}
+        p.dependencies = defaultdict(list)
+        p.G = nx.DiGraph()
+
+        parent = parent_components or {}
+        # reuse heavy components if übergeben, ansonsten neu anlegen
+        p.fc = parent.get('fc') or FrameIOandCacheSupport()
+        p.storage_broker = parent.get('storage_broker') or StorageBroker()
+        p.storage_cache = parent.get('storage_cache') or StorageCache(p.storage_broker.st_class_factory, rws='s')
+
+        # identity / paths
+        p.repo = repo
+        p.app_name = app_name or doc.get('app_name', 'stubapp')
+        p.project_dir = p.repo.joinpath(p.app_name)
+        p.master_config_dir = Path.cwd().joinpath('data_master')
+        p.config_dir = p.master_config_dir.joinpath(p.app_name)
+        p.data_path = data_path
+        p.plname = plname or doc.get('plname', 'included_pipeline')
+        p.sub = p.app_name
+        p.phase = ''
+        p.options = {}
+        p.app_type = doc.get('app_type', 'tree')
+        p.use_legacy_app = False
+
+        # carry over any precomputed config dicts that may be used by prepare_context
+        p.config_d = doc.get('config_d', {})
+        p.config = doc
+
+        return p
+
+    @classmethod
+    def from_config_file(cls, path, **kwargs):
+        """Lade YAML von Datei und erstelle Pipeline via from_config_doc"""
+        pth = Path(path)
+        with open(pth, 'r', encoding='utf-8') as fh:
+            doc = yaml.safe_load(fh)
+        return cls.from_config_doc(doc, **kwargs)
+
+    def register_task_defs_from_list(self, task_defs, templ_ctx: dict = None):
+        """Rendern und registrieren einer Liste von task-definitions in dieser Pipeline.
+
+        templ_ctx: Kontext für Template-Rendering. Falls None, wird self.prepare_context() genutzt.
+        """
+        if templ_ctx is None:
+            templ_ctx = self.prepare_context()
+
+        templ_d = dict(self.config_d) if isinstance(self.config_d, dict) else {}
+        for key in (context_keys.get('path', set()) | context_keys.get('meta', set())):
+            if key in templ_ctx:
+                templ_d[key] = templ_ctx[key]
+
+        for t_def in task_defs:
+            t_def_rendered = render_template(t_def, templ_d)
+            Task.validate_config(t_def_rendered)
+            self.register_task_def(t_def_rendered)
 
 
     # XXX ok to have the KpctrlBusinessLogic class and include the method from there?
@@ -142,10 +218,16 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
 
         kp_list = self.config_list() + ['profile']
         #logger.debug('kp_list: %s', kp_list)
+        """
         for attr in kp_list:
             setattr(self.fc, 'cfg_'+attr, getattr(self, 'cfg_'+attr))
         # legacy name
         setattr(self.fc, 'cfg_si', getattr(self, 'cfg_kp_si'))
+        """
+        self.fc.configure(cfg_kp_frames=self.cfg_kp_frames,
+                          cfg_profile=self.cfg_profile,
+                          cfg_kp_si=self.cfg_kp_si,
+                          cfg_kp_process_fields=self.cfg_kp_process_fields)
 
         self.fc.init_framecache() # ex
         self.fc.init_fc_bytype()
@@ -161,13 +243,14 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
             # scalar values from the runtime context so templates can use
             # {{data_in_path}}, {{data_out_path}}, {{app_name}}, etc.
             templ_d = dict(self.config_d) if isinstance(self.config_d, dict) else {}
-            for key in ('data_path', 'data_in_path', 'data_out_path', 'project_dir', 'config_dir', 'master_config_dir', 'app_name'):
+            for key in (context_keys.get('path', set()) | context_keys.get('meta', set())):
                 if key in dummy_ctx:
                     templ_d[key] = dummy_ctx[key]
 
             t_def_rendered = render_template(t_def, templ_d)
-            yd = yaml.dump(t_def_rendered)
+            #yd = yaml.dump(t_def_rendered)
             #logger.debug(yd)
+            #logger.debug('------------------------------------------------')
             self.register_task_def(t_def_rendered)
 
 
@@ -190,6 +273,7 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
 
     def prepare_context(self):
         context = Context()
+        context['repo'] = self.repo
         context['result'] = None
         context['fc'] = self.fc
         if self.use_legacy_app:
@@ -206,17 +290,27 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
         # expose app_name for tasks
         context['app_name'] = self.app_name
 
+        # If a parent context was provided when this Pipeline was created, merge
+        # over selected keys so nested sub-pipelines can see them (e.g. _include_seen).
+        parent_ctx = getattr(self, '_parent_ctx', None)
+        if isinstance(parent_ctx, dict):
+            # Merge include-seen set specially (union)
+            if '_include_seen' in parent_ctx:
+                raw_seen = parent_ctx.get('_include_seen')
+                try:
+                    parent_seen = set(map(str, raw_seen))
+                except Exception:
+                    parent_seen = set()
+                existing = context.get('_include_seen') or set()
+                context['_include_seen'] = set(existing) | parent_seen
+            # For other keys, only copy when missing to avoid overwriting pipeline-local values
+            for k, v in parent_ctx.items():
+                if k == '_include_seen':
+                    continue
+                if k not in context:
+                    context[k] = v
+
         return context
-
-    """
-    def go_run(self):
-        start_task = self.options.get('start_task', None)
-        if start_task is not None:
-            self.run_from_task(start_task)
-        else:
-            self.run()
-    """
-
 
     # Run a specific task by name, including its requirements
     # context is prepared here if not given by caller (eg for run_all)
@@ -225,6 +319,7 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
         #self.walk_dependencies(task_name, context)
         self.walk_resource_dependencies(task_name, context)
 
+    """
     def walk_dependencies(self, task_name, context):
         task_def = self.task_defs[task_name]
 
@@ -237,7 +332,7 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
         else:
             for dep_name in req_tasks:
                 self.walk_dependencies(dep_name, context)
-
+    """
     def walk_resource_dependencies(self, task_name, context, stack=None, done=None):
         """
         Rekursive Abarbeitung von resourcen-basierten Abhängigkeiten.
@@ -303,17 +398,32 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
         stack.pop()
 
     def run_all(self):
-        print("RUN ORDER:")
+        print("RUN ORDER: ", self.plname)
         for name in nx.topological_sort(self.G):
             print(name)
         print("-----------------")
-        #self.render_dag()
+        self.render_dag()
 
+        # create new context here only if this is no sub-pipeline
+        #if not self.is_subpipeline:
         context = self.prepare_context()
+        log_context(context, "Initial context before pipeline run")
+        logger.debug("Running sub-pipeline %s", self.plname)
+        # keep runtime context available after run for callers who need to sync state
+        self._last_context = context
 
         for name in nx.topological_sort(self.G):
             self._run_task(name, context)
             #self.run_task_by_name(name) #, context=context)
+
+
+    def _merge_context(self, parent: dict, child: dict) -> None:
+        """
+        Merge den child-context in parent-context.
+        Child-Werte überschreiben Parent-Werte (explizit, damit updates aus Subpipelines übernommen werden).
+        """
+        for k, v in child.items():
+            parent[k] = v
 
 
     def _run_task(self, name, context):
@@ -321,7 +431,7 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
         task_def = self.task_defs[name]
 
         logger.debug('---------------- NEXT task %s, action: %s', name, task_def['action'])
-        log_context(context, 'Before run')
+        log_context(context, 'Before: '+name)
 
         task = self.create_task(task_def, context)
         run_flag = self.task_defs[name].get('run')
@@ -354,17 +464,31 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
             return
 
         print(f"Running task: {name}")
-        logger.debug(f"Start {task.__class__}")
-        logger.debug(f"loop_items: {loop_items}")
+        logger.debug(f"Start {name} - {task.__class__}")
+        #logger.debug(f"loop_items: {loop_items}")
         if loop_items:
             task.run_with_loop()
         else:
             task.run()
 
-        #assert result is None, f"result SHOULD be None (context store) - res.type is: {type(result)} "
-        #logger.debug(f"Task {name} completed ")
-            # wenn task einen frame bereitstellt (provide)  im FrameCache speichern
-        log_context(context, 'Task done')
+        # Falls die Task/Subpipeline eigenen Context zurückhält, diesen in den Parent mergen
+        child_ctx = None
+        # gängige Orte prüfen: task.context, task.pipeline._last_context
+        if hasattr(task, "context") and isinstance(getattr(task, "context"), dict):
+            child_ctx = task.context
+        elif hasattr(task, "pipeline") and isinstance(getattr(task.pipeline, "_last_context", None), dict):
+            child_ctx = task.pipeline._last_context
+        elif hasattr(task, "subpipeline") and isinstance(getattr(task, "subpipeline", None), dict):
+            # fallback wenn eine ungewohnte Property verwendet wird
+            child_ctx = task.subpipeline
+
+        if child_ctx:
+            logger.debug(f"Merging child context from task {name} into parent context")
+            log_context(context, f"context before merge / {name}")
+            self._merge_context(context, child_ctx)
+            log_context(child_ctx, f"CHILD ctx of {name}")
+
+        log_context(context, 'Task done: '+name)
 
     def run_from_task(self, start_task_name):
         context = self.prepare_context()
@@ -381,7 +505,7 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
             task = self.create_task(self.task_defs[name], context)
             result = task.run()
             logger.debug(f"Task {name} completed ")
-        self.render_dag()
+        #self.render_dag()
 
     def render_dag(self):
         console = Console()
@@ -389,6 +513,8 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
 
         try:
             for node in nx.topological_sort(self.G):
+                if node.startswith('_'):
+                    continue
                 node_tree = tree.add(node)
                 for succ in self.G.successors(node):
                     dep = node_tree.add(succ)

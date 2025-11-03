@@ -3,7 +3,7 @@ from .loopMixin import LoopMixin
 from flowpy.utils import setup_logger
 import pandas as pd
 logger = setup_logger(__name__, __name__+'.log')
-from .utils import log_context
+from .log_utils import log_context
 
 
 def run_modify_and_register(self):
@@ -119,8 +119,9 @@ class WriteStorageResourceTask(StorageResourceTask):
         self.resource.do_save()
         logger.debug("WriteStorageResourceTask: resource %s saved", self.resource)
 
+from yldpipeNG.statsSupport import StatsSupport
 
-class CopyStorageDataTask(LoopMixin, StorageResourceTask):
+class CopyStorageDataTask(StatsSupport, LoopMixin, StorageResourceTask):  #, StatsSupport):
     def __init__(self, *args):
         super().__init__(*args)
         self.kp_src = self.context['kp_src']
@@ -129,6 +130,7 @@ class CopyStorageDataTask(LoopMixin, StorageResourceTask):
         #logger.debug(self.kp_src.groups)
 
     def run(self):
+        self.stats_init()
         # some tasks use framecache even if they belong to storage taks category
         self.prepare()
 
@@ -136,30 +138,25 @@ class CopyStorageDataTask(LoopMixin, StorageResourceTask):
         self.prepare()
         item = self.item
 
-        p = ['DB', 'Produktiv']
-        group_src = self.kp_src._find_group_by_path(p)
-        #group_src = self.kp_src._find_group_by_path(item['src'])
+        group_src = self.kp_src._find_group_by_path(item['src'])
         group_dst = self.kp_dst._find_group_by_path(item['dst'])
         if not group_src:
             logger.error('group_src not found: %s', item['src'])
         if not group_dst:
             logger.error('group_dst not found: %s', item['dst'])
         logger.debug("group_src: %s, group_dst: %s", group_src.path, group_dst.path)
-
-        # self.group_do_entries_copyall(group_src, group_dst)
-
         logger.debug('entries count: %s', len(group_src.entries))
+
         table_name = 'entries_raw_table'
         kp_process_fields = self.context['config_d']['kp_process_fields']
         df = pd.DataFrame(columns=kp_process_fields[table_name])
-        self.stats_init()
+
         attrs = (kp_process_fields['kp_pure_fields'] +
                  kp_process_fields['kp_same_fields'] +
                  kp_process_fields['kp_extra_fields'] )
-        # lg.debug('attrs: %s', attrs)
         # XXX use dataframe to update the table
+
         for entry in group_src.entries:
-        #for entry in group_src.children:
             row = {}
             for attr in attrs:
                 if attr.endswith('_old'):
@@ -168,9 +165,35 @@ class CopyStorageDataTask(LoopMixin, StorageResourceTask):
                     row[attr] = getattr(entry, attr)
             row['group_path_new'] = group_dst.path
 
+            # minor exceptions in data
+            if row['username'] is None:
+                logger.warning('username is None for entry %s, set to empty string', row['title'])
+                row['username'] = ''
+
+            # Add the copied entry to the destination group in destination database
+            try:
+                self.kp_dst.add_entry(group_dst,
+                    row['title'],
+                    row['username'],
+                    row['password'],
+                    row['url'],
+                    row['notes'],
+                    row['tags'],
+                    row['otp'],
+                    row['icon']
+                    )
+                self.count_suc += 1
+            except Exception as e:
+                #logger.error('Failed to add entry %s to group %s: %s', row['title'], group_dst.path, e)
+                self.count_err += 1
+            self.count += 1
+
+            # Append row to dataframe for reporting
             ldf = len(df)
             df.loc[ldf] = row
             self.count += 1
+
+        # datetime fields to naive
         dt_fields = kp_process_fields.get('dt_fields', [])
         if dt_fields is None:
             dt_fields = []
@@ -178,7 +201,6 @@ class CopyStorageDataTask(LoopMixin, StorageResourceTask):
             df[dt_field] = df[dt_field].dt.tz_localize(None)
 
         fc.store_frame('copyall', group_dst.name, df)
-        # not needed is done in store_frame
-        #fc.buffer_names_d['copyall'][group_dst.name] = group_dst.name
-        #self.stats_report(name='copyall_'+group_dst.name)
+
+        self.stats_report(name='copyall_'+group_dst.name)
 ####

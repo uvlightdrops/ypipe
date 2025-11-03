@@ -17,10 +17,11 @@ class LoopMixin:
     ## XXX rename to prepare_loop or so
     def prepare(self, *args, **kwargs):
         #logger.debug("LoopMixin.prepare args: %s, kwargs: %s", args
-        logger.debug('using loop_item from context: %s', self.context['loop_item'])
         if self.context.get('loop_item', None):
             self.group = self.context['loop_item']
+            logger.debug('using loop_item from context: %s', self.context['loop_item'])
         else:
+            # non-looping task
             self.group = self.config['args']['group']
 
     def run_with_loop(self):
