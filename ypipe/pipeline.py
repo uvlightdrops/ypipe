@@ -151,6 +151,7 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
 
         parent = parent_components or {}
         # reuse heavy components if übergeben, ansonsten neu anlegen
+        # XXX eindeutiger machen
         p.fc = parent.get('fc') or FrameIOandCacheSupport()
         p.storage_broker = parent.get('storage_broker') or StorageBroker()
         p.storage_cache = parent.get('storage_cache') or StorageCache(p.storage_broker.st_class_factory, rws='s')
@@ -159,10 +160,11 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
         p.repo = repo
         p.app_name = app_name or doc.get('app_name', 'stubapp')
         p.project_dir = p.repo.joinpath(p.app_name)
-        p.master_config_dir = Path.cwd().joinpath('data_master')
+        p.master_config_dir = p.repo.joinpath('data_master')
         p.config_dir = p.master_config_dir.joinpath(p.app_name)
         p.data_path = data_path
         p.plname = plname or doc.get('plname', 'included_pipeline')
+        logger.debug(f"Pipeline.from_config_doc: app_name={p.app_name}, pl_name={p.plname}")
         p.sub = p.app_name
         p.phase = ''
         p.options = {}
@@ -182,25 +184,6 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
         with open(pth, 'r', encoding='utf-8') as fh:
             doc = yaml.safe_load(fh)
         return cls.from_config_doc(doc, **kwargs)
-
-    def register_task_defs_from_list(self, task_defs, templ_ctx: dict = None):
-        """Rendern und registrieren einer Liste von task-definitions in dieser Pipeline.
-
-        templ_ctx: Kontext für Template-Rendering. Falls None, wird self.prepare_context() genutzt.
-        """
-        if templ_ctx is None:
-            templ_ctx = self.prepare_context()
-
-        templ_d = dict(self.config_d) if isinstance(self.config_d, dict) else {}
-        for key in (context_keys.get('path', set()) | context_keys.get('meta', set())):
-            if key in templ_ctx:
-                templ_d[key] = templ_ctx[key]
-
-        for t_def in task_defs:
-            t_def_rendered = render_template(t_def, templ_d)
-            Task.validate_config(t_def_rendered)
-            self.register_task_def(t_def_rendered)
-
 
     # XXX ok to have the KpctrlBusinessLogic class and include the method from there?
     #def additional_yaml_config_logic(self):
@@ -237,20 +220,40 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
     # Main work XXX
     def load_task_definitions(self):
         print("---------- REGISTER TASKS ------------")
+        # we could init the real ongoing context here already?
         dummy_ctx = self.prepare_context()
+
         for t_def in self.config.get('tasks', []):
             # Build minimal template context: start with config_d, then add a few
             # scalar values from the runtime context so templates can use
             # {{data_in_path}}, {{data_out_path}}, {{app_name}}, etc.
-            templ_d = dict(self.config_d) if isinstance(self.config_d, dict) else {}
+            templ_d = dict(self.config_d)
             for key in (context_keys.get('path', set()) | context_keys.get('meta', set())):
                 if key in dummy_ctx:
                     templ_d[key] = dummy_ctx[key]
+                else:
+                    logger.debug(f"load_task_definitions: key {key} not in dummy_ctx")
+            # store dummy context for later use as real context
+            # self.dummy_ctx = dummy_ctx
 
             t_def_rendered = render_template(t_def, templ_d)
             #yd = yaml.dump(t_def_rendered)
             #logger.debug(yd)
             #logger.debug('------------------------------------------------')
+            self.register_task_def(t_def_rendered)
+
+
+    def register_task_defs_from_list(self, task_defs, templ_d: dict = None):
+        """Rendern und registrieren einer Liste von task-definitions in dieser Pipeline.
+
+        templ_ctx: Kontext für Template-Rendering. Falls None, wird self.prepare_context() genutzt.
+        """
+        if templ_d is None:
+            templ_d = self.prepare_context()
+
+        for t_def in task_defs:
+            t_def_rendered = render_template(t_def, templ_d)
+            Task.validate_config(t_def_rendered)
             self.register_task_def(t_def_rendered)
 
 
@@ -271,8 +274,10 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
         task.config = t_def
         return task
 
+    # only for initial context
     def prepare_context(self):
         context = Context()
+        context['status'] = 'initial'
         context['repo'] = self.repo
         context['result'] = None
         context['fc'] = self.fc
@@ -289,7 +294,14 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
         context['config_d'] = self.config_d
         # expose app_name for tasks
         context['app_name'] = self.app_name
+        return context
 
+
+    # not sure what we want with this method
+    # used when running sub-pipelines to merge parent context keys
+    def prepare_context_with_parent(self, context=None):
+        if context is None:
+            context = self.prepare_context()
         # If a parent context was provided when this Pipeline was created, merge
         # over selected keys so nested sub-pipelines can see them (e.g. _include_seen).
         parent_ctx = getattr(self, '_parent_ctx', None)
@@ -405,16 +417,45 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
         self.render_dag()
 
         # create new context here only if this is no sub-pipeline
-        #if not self.is_subpipeline:
-        context = self.prepare_context()
+        if self.is_subpipeline:
+            logger.debug("===== RUN ALL - Pipeline is sub-pipeline, cp parent context %s", self.plname)
+            context = self._parent_ctx.copy()
+            #log_context(context, "Sub-pipeline initial context from parent")
+        else:
+            context = self.prepare_context()
+        """
+        """
+
         log_context(context, "Initial context before pipeline run")
-        logger.debug("Running sub-pipeline %s", self.plname)
         # keep runtime context available after run for callers who need to sync state
-        self._last_context = context
 
         for name in nx.topological_sort(self.G):
-            self._run_task(name, context)
+            logger.debug("Pipeline 'run_all' calls _run_task %s", name)
+
+            ### RUN the innner task method
+            last_task = self._run_task(name, context)
             #self.run_task_by_name(name) #, context=context)
+
+            if hasattr(self, 'context_result_subpipeline'):
+                # re-use updated context from last task run
+                context = self.context_result_subpipeline
+                log_context(context, "XXXXXX Reused context_result_sub before task "+name)
+                del(self.context_result_subpipeline)
+            """
+            """
+
+
+        if last_task:
+            logger.debug(">>> LAST TASK was %s", last_task.name)
+            #logger.debug('set context_result_subpipeline after run_all')
+            logger.debug('is_subpipeline: %s', self.is_subpipeline)
+            log_context(context, "Final after subPL run to store in context_result_subpipeline")
+            #self.context_result_subpipeline = self.context
+            logger.debug('pl obj: %s', str(self.plname))
+            # XXX maybe
+            return context
+        else:
+            logger.debug(">>> run_all: last task in middle of pl ")
 
 
     def _merge_context(self, parent: dict, child: dict) -> None:
@@ -441,7 +482,7 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
 
         if run_flag == False:
             logger.debug(f"Skipping task {name} as run flag is False")
-            print(f"Skipping task: {name}")
+            print(f"__skipping task: ({name})")
             return
 
         loop_items = self.task_defs[name].get('loop_items', None)
@@ -471,24 +512,17 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
         else:
             task.run()
 
-        # Falls die Task/Subpipeline eigenen Context zurückhält, diesen in den Parent mergen
-        child_ctx = None
-        # gängige Orte prüfen: task.context, task.pipeline._last_context
-        if hasattr(task, "context") and isinstance(getattr(task, "context"), dict):
-            child_ctx = task.context
-        elif hasattr(task, "pipeline") and isinstance(getattr(task.pipeline, "_last_context", None), dict):
-            child_ctx = task.pipeline._last_context
-        elif hasattr(task, "subpipeline") and isinstance(getattr(task, "subpipeline", None), dict):
-            # fallback wenn eine ungewohnte Property verwendet wird
-            child_ctx = task.subpipeline
+        # if task was an IncludePipelineTask, merge sub-context back
+        if task_def['action'] == 'includePipeline':
+            logger.debug("context after IncludePipelineTask")
+            #logger.debug("Merging sub-pipeline context back into main context after IncludePipelineTask")
+            #log_context(task.context, 'IncludePipelineTask sub-context')
+            #self._merge_context(context, task.context)
 
-        if child_ctx:
-            logger.debug(f"Merging child context from task {name} into parent context")
-            log_context(context, f"context before merge / {name}")
-            self._merge_context(context, child_ctx)
-            log_context(child_ctx, f"CHILD ctx of {name}")
+        log_context(context, '_run_task done: '+name)
+        # only for context transfer at end of subpipeline
+        return task
 
-        log_context(context, 'Task done: '+name)
 
     def run_from_task(self, start_task_name):
         context = self.prepare_context()

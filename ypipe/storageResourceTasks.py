@@ -42,6 +42,7 @@ class StorageResourceTask(ResourceTask):
 
     # XXX fetch a resource from context or cache, change to fetch_sth...
     # used in Modify and Write tasks
+    # assumes ctx_key is defined in config
     def fetch(self, *args, **kwargs):
         resource = self.context.get(self.ctx_key, None)
 
@@ -52,6 +53,11 @@ class StorageResourceTask(ResourceTask):
             resource = self.sc.get_resource(self.req_resources[0], *args, type=self.type, **kwargs)
             logger.debug("SRT - resource %s found in cache, assign to self", resource)
         self.resource = resource
+
+        #if not hasattr(self, 'type'):
+        if self.type is None:
+            self.type = self.resource.type
+
 
     def run(self):
         # resource not fetched here but created from start
@@ -204,3 +210,17 @@ class CopyStorageDataTask(StatsSupport, LoopMixin, StorageResourceTask):  #, Sta
 
         self.stats_report(name='copyall_'+group_dst.name)
 ####
+
+class DebugStorageResourceTask(StorageResourceTask):
+    def __init__(self, *args):
+        super().__init__(*args)
+
+    def run(self):
+        self.fetch(filename=self.fn)
+        logger.debug("DebugStorageResourceTask: resource %s loaded", self.resource)
+        logger.debug("type: %s", self.type)
+        if self.type == 'kdbx':
+            logger.debug("DebugStorageResourceTask - len groups: %s", len(self.resource.groups))
+            #for g in self.resource.groups:
+            #    logger.debug("group: %s, entries: %s", g.path, len(g.entries))
+
