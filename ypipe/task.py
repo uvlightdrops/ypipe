@@ -155,3 +155,13 @@ class DebugContextTask(Task):
         #    logger.debug("  %s: %s", k, v)
 
 
+class SetContextTask(Task):
+    def run(self):
+        items = self.args.get('items', {})
+        for k, v in items.items():
+            if k in self.context:
+                logger.debug("SetContextTask overwriting context[%s]: %s -> %s", k, self.context[k], v)
+            self.context[k] = v
+            logger.debug("SetContextTask set context[%s] = %s", k, v)
+
+
