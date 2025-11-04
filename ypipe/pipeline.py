@@ -2,6 +2,7 @@
 from collections import defaultdict
 from rich.console import Console
 from rich.tree import Tree
+from rich.text import Text
 from pathlib import Path
 import yaml
 import networkx as nx
@@ -21,6 +22,7 @@ from .context import Context
 from .log_utils import log_context
 
 logger = setup_logger(__name__, __name__+'.log')
+console = Console()
 #print("Logger for pipeline set up.", logger._logfile)
 DEBUG=True
 pre = 'yp'
@@ -220,7 +222,7 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
 
     # Main work XXX
     def load_task_definitions(self):
-        print("---------- REGISTER TASKS ------------")
+        console.print("---------- REGISTER TASKS ------------", style="bold blue")
         # we could init the real ongoing context here already?
         task_defs = self.config.get('tasks', [])
         self.register_task_defs_from_list(task_defs)
@@ -330,10 +332,16 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
         # Für jede benötigte Resource: finde Provider und verarbeite deren Abhängigkeiten zuerst
         for res_name in req_resources:
             logger.debug(f"Task {task_name} requires resource {res_name}, checking providers")
-            provider_tasks = [
-                t_name for t_name, t_def in self.task_defs.items()
-                if t_name != task_name and res_name in t_def.get('provides', [])
-            ]
+            #provider_tasks = [
+            #    t_name for t_name, t_def in self.task_defs.items()
+            #    if t_name != task_name and res_name in t_def.get('provides', [])
+            #]
+            provider_tasks = []
+            for t_name, t_def in self.task_defs.items():
+                logger.debug(f"Check task {t_name} for provides {t_def.get('provides',[])}")
+                if t_name != task_name and res_name in t_def.get('provides', []):
+                    provider_tasks.append(t_name)
+
             if not provider_tasks:
                 # Keine Provider gefunden -> Fehler
                 raise RuntimeError(f"No task provides required resource '{res_name}' for task '{task_name}'")
@@ -355,11 +363,17 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
         stack.pop()
 
     def run_all(self):
-        print("RUN ORDER: ", self.plname)
+        print("-----------------------------------------------------------")
+
+        self.render_dag()
+
+        outsub = 'SUBPIPE' if self.is_subpipeline else 'MAINPIPE'
+        output = "FINAL RUN ORDER: %s = %s" %(self.plname, outsub)
+
+        console.print(Text(output, style="bold blue"))
+        # output of task run order
         for name in nx.topological_sort(self.G):
             print(name)
-        print("-----------------")
-        self.render_dag()
 
         # create new context here only if this is no sub-pipeline
         if self.is_subpipeline:
@@ -398,7 +412,7 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
             return context
         else:
             logger.debug(">>> run_all: last task in middle of pl ")
-
+        print(f"END of pipeline {self.name}")
 
     def _merge_context(self, parent: dict, child: dict) -> None:
         """
@@ -407,6 +421,12 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
         """
         for k, v in child.items():
             parent[k] = v
+
+
+    def run_task_by_name(self, name):
+        context = self.prepare_context()
+        #self._run_task(name, context)
+        self.walk_resource_dependencies(name, context)
 
 
     def _run_task(self, name, context):
@@ -446,7 +466,7 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
         if skip_task:
             return
 
-        print(f"Running task: {name}")
+        console.print(Text(f"Running task: {name}", style="bold green"))
         logger.debug(f"Start {name} - {task.__class__}")
         #logger.debug(f"loop_items: {loop_items}")
         if loop_items:
@@ -477,23 +497,25 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
             raise RuntimeError(f"Task {start_task_name} nicht gefunden!")
         # Nur die Tasks ab dem Start-Task ausführen
         for name in sorted_tasks[start_index:]:
-            print(f"Running task: {name}")
+            console.print(Text(f"Running task: {name}", style="bold green"))
             task = self.create_task(self.task_defs[name], context)
             result = task.run()
             logger.debug(f"Task {name} completed ")
         #self.render_dag()
 
     def render_dag(self):
-        console = Console()
-        tree = Tree("Pipeline DAG")
+        tt = Text("Pipeline dependency graph :: "+self.plname, style="bold magenta")
+        tree = Tree(tt)
 
+        node_style = "cyan"
+        succ_style = "green"
         try:
             for node in nx.topological_sort(self.G):
                 if node.startswith('_'):
                     continue
-                node_tree = tree.add(node)
+                node_tree = tree.add(Text(node, style=node_style))
                 for succ in self.G.successors(node):
-                    dep = node_tree.add(succ)
+                    dep = node_tree.add(Text(succ, style=succ_style))
                     #node_tree.add(dep)
             console.print(tree)
         except nx.NetworkXUnfeasible:
