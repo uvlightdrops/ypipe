@@ -19,6 +19,9 @@ Task = None
 ResourceTask = None
 
 
+
+
+
 # for custom_tasks directory loading
 def import_task_modules_from_dir(directory):
     """
@@ -149,6 +152,7 @@ def _init_mapping(repo):
 
     # Try to bind Task and ResourceTask from the imported 'task' module if available.
     for mod in core_modules:
+        #logger.debug(f"Checking core module for Task classes: {getattr(mod, '__name__', None)}")
         if not mod:
             continue
         if getattr(mod, '__name__', '').endswith('.task') or getattr(mod, '__name__', '') == 'task':
@@ -190,7 +194,6 @@ class TaskFactory:
         mapp = _get_mapp(context['repo'])
         if t_def['name'] == 'initSR_kp_src':
             logger.debug('TaskFactory creating initSR_kp_src task')
-            logger.debug('context keys: %s', list(context.keys()))
             log_context(context, "TaskFactory context")
 
 

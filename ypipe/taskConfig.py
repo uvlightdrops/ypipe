@@ -17,6 +17,7 @@ class ArgsModel(BaseModel):
     out: str = ''
     group: str = ''
     frame_group: str = ''
+    frame_group_dict: bool = False
 
 class TaskModel(BaseModel):
     ### Required
@@ -41,6 +42,7 @@ class TaskModel(BaseModel):
     provides: List[str] = []
     # if a dict of results is provided, e.g. when using loop_items
     provided_d: List[str] = []
+    provides_dict: bool = False
 
     frame_group: str = ''
 

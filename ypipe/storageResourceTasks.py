@@ -81,8 +81,8 @@ class StorageResourceTask(ResourceTask):
         resource.src_or_dst = sod
 
         # Das hier ist net am rechten platz, sollte temporär nur für run methode nötig sein
-        logger.debug("SRT - resource assign to context key %s", self.provides[0])
-        self.context[self.provides[0]] = resource
+        logger.debug("SRT - resource assign to context key %s", self.provides[0]['key'])
+        self.context[self.provides[0]['key']] = resource
         logger.debug("SRT - task %s provides resource %s ", self.name, resource)
         if self.type == 'kdbx':
             logger.debug("SRT - len groups: %s", len(resource.groups))

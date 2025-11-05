@@ -31,12 +31,14 @@ class LoopMixin:
         logger.debug("LoopMixin.run_with_loop items: %s", items)
         provide_dict = self.config.get('provide_dict', False)
 
+        """
         if self.provides:
             provide = self.provides[0]
             self.context[provide] = None
 
         if provide_dict:
             self.context[provide + '_d'] = {}
+        """
 
         if not items:
             logger.error("No loop_items defined in config for task %s", self.config.get('name', 'unknown'))
@@ -48,17 +50,16 @@ class LoopMixin:
 
             self.run()
 
+            """
+            # XXX outdated,
+            logger.debug('provide_dict: %s', provide_dict)
             if provide_dict:
                 self.context[provide+'_d'][item] = self.context['result']
                 logger.debug("Storing result in context[%s][%s]", provide+'_d', item)
+            """
 
-                """
-                for p in provides:
-                    logger.debug("Storing stub for provided %s in context", p)
-                    self.context[p] = 'Stub'
-                """
             # XXX useless ? or at beinning?
-            self.context['result'] = None
+            #self.context['result'] = None
 
         logger.debug(self.context['loop_item'])
         #self.context.pop('loop_item', None)

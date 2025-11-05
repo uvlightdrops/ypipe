@@ -9,7 +9,7 @@ class FrameResourceTask(LoopMixin, ResourceTask):
     """ Provides a frame resource from frame cache"""
     def __init__(self, *args):
         super().__init__(*args)
-        logger.debug("FrameResourceTask init")
+        #logger.debug("FrameResourceTask init")
         # FrameResourceTask special
         self.frame_group_name = self.args.get('frame_group_name', None)
         self.group = self.args.get('group', None)
@@ -20,6 +20,7 @@ class FrameResourceTask(LoopMixin, ResourceTask):
 
         self.resource = self.context['fc'].get_frame(self.frame_group_name, self.group)
 
+        # XXX this was a pure guess and should be checked
         self.context[ self.config['name'] ] = self.resource
 
 
@@ -29,23 +30,44 @@ class StoreFrameResourceTask(FrameResourceTask):
     def __init__(self, *args):
         super().__init__(*args)
     def run(self):
-        logger.debug("StoreFrameResourceTask storing frame resource to frame cache")
+        logger.debug("33 StoreFrameResourceTask storing frame resource to frame cache")
         self.prepare()
 
-        # d.h. ganze framegroup speichern
-        if self.config.get('frame_group_d', None):
-            fg_d = self.config['frame_group_d']
-            self.context['fc'].store_frame_group(self.frame_group_name, fg_d)
-            logger.debug("StoreFrameResourceTask also stored frame %s in frame group %s", frame_name, v)
+        # d.h. ganze framegroup speichern XXX rename use_frame_group_dict ??
+        frame_group_dict = self.args.get('frame_group_dict', None)
 
-        # XXX return success flag? and store in context?
+        if frame_group_dict:
+            logger.debug("39 store full frame group %s",  self.frame_group_name)
+            fg_d = self.context[self.frame_group_name]
+
+            logger.debug('42 frame group to store - keys: %s, %s', fg_d.keys(), self.name)
+            #logger.debug(fg_d['Weblogic'].head(3))
+            self.context['fc'].store_frame_group(self.frame_group_name, fg_d)
+
         else:
             logger.debug("store simple frame in frame group %s, group %s",  self.frame_group_name, self.group)
             frame = self.context[self.config['args']['in']]
+
             self.context['fc'].store_frame(self.frame_group_name, self.group, frame)
             logger.debug('provides: %s', self.provides)
             if self.provides:
                 self.context[self.provides[0]] = frame
+
+
+class StoreFrameGroupResourceTask(FrameResourceTask):
+    """ Store a frame group resource to frame cache"""
+    def __init__(self, *args):
+        super().__init__(*args)
+    def run(self):
+        logger.debug("StoreFrameGroupResourceTask storing frame group resource to frame cache")
+        self.prepare()
+
+        frame_group_name = self.item
+        frame_group_dict = self.context[self.item]
+        #frame_group_dict = self.context[self.config['args']['in']]
+
+        logger.debug('frame group to store - keys: %s, %s', frame_group_dict.keys(), self.name)
+        self.context['fc'].store_frame_group(frame_group_name, frame_group_dict)
 
 
 class ReadFrameResourceTask(FrameResourceTask):
@@ -87,3 +109,18 @@ class WriteFrameResourceTask(FrameResourceTask):
         self.context['fc'].write_frame_group(self.frame_group_name)
         #self.context['fc'].write_frame_group(self.frame_group_name, fg)
         logger.debug("writeFrameGroupTask wrote frame group %s ", self.frame_group_name)
+
+
+class WriteFrameGroupResourceTask(FrameResourceTask):
+    def __init__(self, *args):
+        super().__init__(*args)
+
+    def run(self):
+        self.prepare()
+        frame_group_name = self.item
+        fg = self.context['fc'].get_frame_group(frame_group_name)
+        logger.debug('framegroup %s, keys to write: %s', frame_group_name, fg.keys())
+        self.context['fc'].write_frame_group(frame_group_name)
+        logger.debug("WriteFrameGroupResourceTask wrote frame group %s ", frame_group_name)
+
+
