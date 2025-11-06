@@ -175,7 +175,7 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
 
         # carry over any precomputed config dicts that may be used by prepare_context
         p.config_d = doc.get('config_d', {})
-        log_context(p.config_d, "Pipeline.from_config_doc config_d")
+        #log_context(p.config_d, "Pipeline.from_config_doc config_d")
         p.config = doc
 
         return p
@@ -225,6 +225,7 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
         console.print("---------- REGISTER TASKS ------------", style="bold blue")
         # we could init the real ongoing context here already?
         task_defs = self.config.get('tasks', [])
+        logger.debug(f"load_task_definitions: found {len(task_defs)} task definitions in pipeline {self.plname}")
         self.register_task_defs_from_list(task_defs)
 
     def register_task_defs_from_list(self, task_defs, *args, **kwargs):
@@ -233,28 +234,30 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
         """
         # prepare all config files accessible for template rendering
         templ_d = dict(self.config_d)
-        log_context(templ_d, "Template context from config_d")
+        #log_context(templ_d, "Template context from config_d")
         # add selected context keys
         dummy_ctx = self.prepare_context()
         log_context(dummy_ctx, 'Dummy context for templating')
         keys_l = (context_keys.get('path', set()) | context_keys.get('meta', set()))
-        logger.debug(f"load_task_definitions: adding context keys for templating: {keys_l}")
+        logger.debug(f"adding context keys for templating: {keys_l}")
         for key in keys_l:
             if key in dummy_ctx:
                 templ_d[key] = dummy_ctx[key]
             else:
                 logger.debug(f"load_task_definitions: key {key} not in dummy_ctx")
-        log_context(templ_d, "Template context for task definitions")
+        #log_context(templ_d, "Template context for task definitions")
 
         for t_def in task_defs:
             t_def_rendered = render_template(t_def, templ_d)
+
             Task.validate_config(t_def_rendered)
+            # actually register the task
             self.register_task_def(t_def_rendered)
 
 
     def register_task_def(self, t_def):
         Task.validate_config(t_def)
-        #logger.debug('Registering task: %s', t_def['name'])
+        logger.debug('Registering task: %s', t_def['name'])
         # XXX click.secho later in two colors split by underscore
         name = t_def['name']
         self.task_defs[name] = t_def
@@ -317,42 +320,54 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
         # Markiere Task im aktuellen Stack
         stack.append(task_name)
 
+        # ensure task_def exists
+        if task_name not in self.task_defs:
+            stack.pop()
+            raise RuntimeError(f"Task definition for '{task_name}' not found")
+
         # Hole die Definition (wird KeyError werfen, falls nicht vorhanden)
         task_def = self.task_defs[task_name]
 
+        # 1) Resolve explicit task-to-task dependencies
+        req_tasks = task_def.get('req_tasks', [])
+        for req in req_tasks:
+            if req not in self.task_defs:
+                stack.pop()
+                raise RuntimeError(f"Required task '{req}' (for '{task_name}') not defined")
+            if req in done:
+                logger.debug(f"Required task {req} already done; skipping")
+                continue
+            logger.debug(f"Resolving req_task {req} for {task_name}")
+            self.walk_resource_dependencies(req, context, stack, done)
+
+        # 2) Resolve resource-based dependencies (find providers)
         req_resources = task_def.get('req_resources', [])
-        if not req_resources:
-            logger.debug(f"Task {task_name} no res.req, run now and return")
-            # Führe Task aus, markiere als done
-            self._run_task(task_name, context)
-            done.add(task_name)
-            stack.pop()
-            return
 
-        # Für jede benötigte Resource: finde Provider und verarbeite deren Abhängigkeiten zuerst
-        for res_name in req_resources:
-            logger.debug(f"Task {task_name} requires resource {res_name}, checking providers")
-            #provider_tasks = [
-            #    t_name for t_name, t_def in self.task_defs.items()
-            #    if t_name != task_name and res_name in t_def.get('provides', [])
-            #]
-            provider_tasks = []
-            for t_name, t_def in self.task_defs.items():
-                logger.debug(f"Check task {t_name} for provides {t_def.get('provides',[])}")
-                if t_name != task_name and res_name in t_def.get('provides', []):
-                    provider_tasks.append(t_name)
+        if req_resources:
+            # Für jede benötigte Resource: finde Provider und verarbeite deren Abhängigkeiten zuerst
+            for res_name in req_resources:
+                logger.debug(f"Task {task_name} requires resource {res_name}, checking providers")
+                #provider_tasks = [
+                #    t_name for t_name, t_def in self.task_defs.items()
+                #    if t_name != task_name and res_name in t_def.get('provides', [])
+                #]
+                provider_tasks = []
+                for t_name, t_def in self.task_defs.items():
+                    logger.debug(f"Check task {t_name} for provides {t_def.get('provides',[])}")
+                    if t_name != task_name and res_name in t_def.get('provides', []):
+                        provider_tasks.append(t_name)
 
-            if not provider_tasks:
-                # Keine Provider gefunden -> Fehler
-                raise RuntimeError(f"No task provides required resource '{res_name}' for task '{task_name}'")
+                if not provider_tasks:
+                    # Keine Provider gefunden -> Fehler
+                    raise RuntimeError(f"No task provides required resource '{res_name}' for task '{task_name}'")
 
-            for prov_task in provider_tasks:
-                if prov_task in done:
-                    logger.debug(f"Provider {prov_task} already done; skipping")
-                    continue
-                logger.debug(f"check provtask %s for its deps", prov_task)
-                # Rekursiver Aufruf mit geteiltem 'stack' und 'done'
-                self.walk_resource_dependencies(prov_task, context, stack, done)
+                for prov_task in provider_tasks:
+                    if prov_task in done:
+                        logger.debug(f"Provider {prov_task} already done; skipping")
+                        continue
+                    logger.debug(f"check provtask %s for its deps", prov_task)
+                    # Rekursiver Aufruf mit geteiltem 'stack' und 'done'
+                    self.walk_resource_dependencies(prov_task, context, stack, done)
 
         # Nachdem alle Provider gelaufen sind, noch einmal sicherstellen, dass die Task selbst nur einmal läuft
         if task_name not in done:
@@ -373,11 +388,17 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
         console.print(Text(output, style="bold blue"))
         # output of task run order
         for name in nx.topological_sort(self.G):
-            print(name)
+            output = name
+            #logger.debug("Task to run: %s", name)
+            #logger.debug(self.task_defs[name])
+            if self.task_defs[name].get('run', True) == False:
+                output = ' (skipped) '+name
+            print(output)
+        print()
 
         # create new context here only if this is no sub-pipeline
         if self.is_subpipeline:
-            logger.debug("===== RUN ALL - Pipeline is sub-pipeline, cp parent context %s", self.plname)
+            logger.debug("===== ===== RUN ALL - PL is sub-pipeline, cp parent context %s", self.plname)
             context = self._parent_ctx.copy()
             #log_context(context, "Sub-pipeline initial context from parent")
         else:
@@ -391,28 +412,27 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
         for name in nx.topological_sort(self.G):
             logger.debug("Pipeline 'run_all' calls _run_task %s", name)
 
-            ### RUN the innner task method
+            ### RUN the innner task method, returns None usually
             last_task = self._run_task(name, context)
-            """
-            if hasattr(self, 'context_result_subpipeline'):
-                # re-use updated context from last task run
-                context = self.context_result_subpipeline
-                log_context(context, "XXXXXX Reused context_result_sub before task "+name)
-                del(self.context_result_subpipeline)
-            """
+            logger.debug(">>> run_all: last_task=%s", last_task)
 
+
+        logger.debug('%s is_subpipeline: %s', self.plname, self.is_subpipeline)
+        # After all tasks done, return context from last task
         if last_task:
             logger.debug(">>> LAST TASK was %s", last_task.name)
-            #logger.debug('set context_result_subpipeline after run_all')
-            logger.debug('is_subpipeline: %s', self.is_subpipeline)
-            log_context(context, "Final after subPL run to store in context_result_subpipeline")
-            #self.context_result_subpipeline = self.context
-            logger.debug('pl obj: %s', str(self.plname))
-            # XXX maybe
+            log_context(context, "Final after ran subPL "+self.plname+" and return as result_context")
+
+            output = f"END of pipeline {self.plname}"
+            console.print(Text(output, style="bold red"))
+            print()
             return context
+            # XXX maybe
+
         else:
-            logger.debug(">>> run_all: last task in middle of pl ")
-        print(f"END of pipeline {self.name}")
+            logger.debug(">>> run_all: last_task==None - ?? in middle of pl ")
+            return None
+
 
     def _merge_context(self, parent: dict, child: dict) -> None:
         """
@@ -429,7 +449,7 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
         self.walk_resource_dependencies(name, context)
 
 
-    def _run_task(self, name, context):
+    def _run_task(self, name, context) -> Task | None:
 
         task_def = self.task_defs[name]
 
@@ -443,14 +463,14 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
         #logger.debug(type(run_flag))
 
         if run_flag == False:
-            logger.debug(f"Skipping task {name} as run flag is False")
+            #logger.debug(f"Skipping task {name} as run flag is False")
             print(f"__skipping task: ({name})")
-            return
+            return None
 
         loop_items = self.task_defs[name].get('loop_items', None)
         #logger.debug(f"Task {name} loop_items: {loop_items}")
 
-        requires = task_def.get('req', [])
+        requires = task_def.get('req_resources', [])
         #logger.debug('Task %s requires: %s', name, requires)
         for req in requires:
             if req not in context:
@@ -464,10 +484,10 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
                 logger.debug('Task %s got required %s from context', name, req)
 
         if skip_task:
-            return
+            return None
 
         console.print(Text(f"Running task: {name}", style="bold green"))
-        logger.debug(f"Start {name} - {task.__class__}")
+        #logger.debug(f"Start {name} - {task.__class__}")
         #logger.debug(f"loop_items: {loop_items}")
         if loop_items:
             task.run_with_loop()
@@ -476,13 +496,15 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
 
         # if task was an IncludePipelineTask, merge sub-context back
         if task_def['action'] == 'includePipeline':
-            logger.debug("context after IncludePipelineTask")
+            pass
+            #logger.debug("context after IncludePipelineTask")
             #logger.debug("Merging sub-pipeline context back into main context after IncludePipelineTask")
             #log_context(task.context, 'IncludePipelineTask sub-context')
             #self._merge_context(context, task.context)
 
         log_context(context, '_run_task done: '+name)
         # only for context transfer at end of subpipeline
+        logger.debug(">>> _run_task returning task object %s", task.name)
         return task
 
 
@@ -514,8 +536,8 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
                 if node.startswith('_'):
                     continue
                 node_tree = tree.add(Text(node, style=node_style))
-                for succ in self.G.successors(node):
-                    dep = node_tree.add(Text(succ, style=succ_style))
+                #for succ in self.G.successors(node):
+                    #dep = node_tree.add(Text('__'+succ, style=succ_style))
                     #node_tree.add(dep)
             console.print(tree)
         except nx.NetworkXUnfeasible:

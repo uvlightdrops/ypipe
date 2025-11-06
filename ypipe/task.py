@@ -23,6 +23,8 @@ class Task: #(YamlConfigSupport):
         #self.pipeline = pipeline
         self.context = context
         #logger.debug(self.context.keys())
+        # set item to None for non-looping tasks
+        self.item = None
 
         # XXX args from yaml not confuse with function args
         self.args = self.config.get('args', {})
@@ -94,57 +96,10 @@ class StopTask(Task):
 
 class EchoTask(LoopMixin, Task):
     def run(self):
-        value = self.item
+        self.prepare()
+
+        value = self.args.get('value', self.item)
         print("ECHO: ", value)
-
-
-class FileTask(Task):
-    pass
-
-class CopyFileTask(FileTask):
-    def run(self):
-        import shutil
-        from pathlib import Path
-
-        src = self.args.get('src')
-        dst = self.args.get('dst')
-        if not src or not dst:
-            logger.error("CopyFileTask needs src and dst args")
-            return
-        """
-        # Resolve data_path and app_name from context (attr or dict)
-        ctx = self.context
-        data_path = None
-        data_path = self.context.get('data_path')
-        logger.debug(f"CopyFileTask using data_path: {data_path}, join {src} -> {dst}")
-        # cast to path object if not yet one
-        if not isinstance(data_path, Path):
-            data_path = Path(data_path)
-
-        app_name = self.context.get('app_name')
-        srcpath = data_path.joinpath(src)
-        dstpath = data_path.joinpath(dst)
-        """
-        srcpath = Path(src)
-        dstpath = Path(dst)
-
-        try:
-            if not srcpath.exists():
-                logger.error("Source does not exist: %s", srcpath)
-                return
-
-            # Ensure destination directory exists
-            dstpath.parent.mkdir(parents=True, exist_ok=True)
-
-            # Atomic copy: copy to a temp file in the destination dir, then replace
-            tmp_name = dstpath.name + f'.{os.getpid()}.tmp'
-            tmp_path = dstpath.parent.joinpath(tmp_name)
-            shutil.copy2(srcpath, tmp_path)
-            os.replace(str(tmp_path), str(dstpath))
-
-            logger.info(f"Copied file from {srcpath} to {dstpath}")
-        except Exception as e:
-            logger.exception("Failed to copy file: %s", e)
 
 
 class DebugContextTask(Task):
@@ -153,6 +108,17 @@ class DebugContextTask(Task):
         logger.debug("DebugContextTask context keys: %s", self.context.keys())
         #for k, v in self.context.items():
         #    logger.debug("  %s: %s", k, v)
+
+
+class DebugContextVarTask(Task):
+    def run(self):
+        # lookup ctx_key in context and log its value
+        ctx_key = self.args.get('ctx_key')
+        if ctx_key in self.context:
+            logger.debug("DebugContextVarTask context[%s] = %s", ctx_key, self.context[ctx_key])
+        else:
+            logger.warning("DebugContextVarTask context has no key %s", ctx_key)
+
 
 
 class SetContextTask(Task):
@@ -165,3 +131,15 @@ class SetContextTask(Task):
             logger.debug("SetContextTask set context[%s] = %s", k, v)
 
 
+class SetFactTask(Task):
+    def run(self):
+
+        facts = self.args
+        for k, v in facts.items():
+            logger.debug("SetFactTask set fact %s = %s", k, v)
+            if k not in self.context:
+                logger.debug("SetFactTask adding new fact %s to context", k)
+                self.context[k] = v
+            else:
+                logger.warning("SetFactTask overwriting fact %s in context: %s -> %s", k, self.context[k], v)
+                self.context[k] = v

@@ -18,16 +18,20 @@ class LoopMixin:
     def prepare(self, *args, **kwargs):
         #logger.debug("LoopMixin.prepare args: %s, kwargs: %s", args
         if self.context.get('loop_item', None):
+            # XXX not nice, get rid of it
             self.group = self.context['loop_item']
-            logger.debug('using loop_item from context: %s', self.context['loop_item'])
+            # DONT
+            #self.item = self.context['loop_item']
+            logger.debug('%s using loop_item from context: %s', self.name, self.context['loop_item'])
         else:
             # non-looping task
-            self.group = self.config['args']['group']
+            self.group = self.args.get('group', None)
 
     def run_with_loop(self):
         results_d = {}
         # XXX relate to inits from base classes later
         items = self.config.get('loop_items', [])
+
         logger.debug("LoopMixin.run_with_loop items: %s", items)
         provide_dict = self.config.get('provide_dict', False)
 
@@ -44,10 +48,13 @@ class LoopMixin:
             logger.error("No loop_items defined in config for task %s", self.config.get('name', 'unknown'))
 
         for item in items:
+            # the current item is stored in self.item for use in run()
+            # AND in context['loop_item'] for access from other methods
             self.item = item
             self.context['loop_item'] = item
-            logger.debug("call run - and loop_item is %s", item)
+            logger.debug("call run - loop_item : %s", item)
 
+            # Call the actual run method of the subclass
             self.run()
 
             """

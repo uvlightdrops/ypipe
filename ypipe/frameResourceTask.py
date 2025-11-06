@@ -13,6 +13,8 @@ class FrameResourceTask(LoopMixin, ResourceTask):
         # FrameResourceTask special
         self.frame_group_name = self.args.get('frame_group_name', None)
         self.group = self.args.get('group', None)
+        logger.debug("%s FRT init frame_group_name: %s, group: %s",
+                     self.name, self.frame_group_name, self.group)
 
     def run(self):
         logger.debug("FrameResourceTask OR should run subclass run()??")
@@ -74,7 +76,11 @@ class ReadFrameResourceTask(FrameResourceTask):
     """ Read a frame resource from frame cache"""
     def run(self):
         self.prepare()
-        frame = self.context['fc'].get_frame(self.frame_group_name, self.group)
+        frame_group_name = self.frame_group_name
+        group = self.group or self.item
+        logger.debug("RFRT frame group name %s, group %s", frame_group_name, group)
+        frame = self.context['fc'].get_frame(frame_group_name, group)
+
         self.context[self.config['name']] = frame
 
 
@@ -88,6 +94,7 @@ class DebugFrameResourceTask(FrameResourceTask):
 class DebugFrameGroupResourceTask(FrameResourceTask):
     def run(self):
         self.prepare()
+
         logger.debug("DebugFrameGroupResourceTask self.frame_group_name %s", self.frame_group_name)
         # if no frame_group_name arg use group = corresponds to loop item
         frame_group_name = self.args.get('frame_group_name', None) or self.group
@@ -101,9 +108,11 @@ class DebugFrameGroupResourceTask(FrameResourceTask):
 class WriteFrameResourceTask(FrameResourceTask):
     def __init__(self, *args):
         super().__init__(*args)
+        logger.debug("WriteFrameResourceTask init frame_group_name: %s", self.frame_group_name)
 
     def run(self):
         self.prepare()
+
         #fg = self.context['fc'].get_frame_group(self.frame_group_name)
         #logger.debug('framegroup %s, keys to write: %s', self.frame_group_name, fg.keys())
         self.context['fc'].write_frame_group(self.frame_group_name)
@@ -117,9 +126,13 @@ class WriteFrameGroupResourceTask(FrameResourceTask):
 
     def run(self):
         self.prepare()
-        frame_group_name = self.item
+
+        # this seems a fine solution
+        frame_group_name = self.frame_group_name or self.item
+
         fg = self.context['fc'].get_frame_group(frame_group_name)
         logger.debug('framegroup %s, keys to write: %s', frame_group_name, fg.keys())
+
         self.context['fc'].write_frame_group(frame_group_name)
         logger.debug("WriteFrameGroupResourceTask wrote frame group %s ", frame_group_name)
 

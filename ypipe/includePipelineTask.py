@@ -89,28 +89,24 @@ class IncludePipelineTask(Task):
         try:
             logger.debug(f'subpipe {sub_plname} starting run_all()')
             result_context = sub_pipeline.run_all()
-            if result_context is not None:
-                logger.debug(f'subpipe {sub_plname} run_all() returned context')
-                log_context(result_context, 'IPP --------------- result_context')
-
-            # last task of the pipeline has current context
-
-
-            #log_context(sub_pipeline.context_result_subpipeline, msg='context result')
-            #result = getattr(sub_pipeline, 'context_result_subpipeline', None)
-            #log_context(result, 'IncludePP sub-pipeline result')
         except Exception:
-            raise
-            # return False
+            raise ValueError
 
+
+        if result_context is not None:
+            logger.debug(f'subpipe {sub_plname} run_all() returned context')
+            log_context(result_context, 'IPP --------------- result_context')
+        else:
+            logger.error("IncludePP sub-pipeline run_all() returned %s as context", result_context)
+            raise ValueError
+        # last task of the pipeline has current context
 
         # nur erlaubte Keys übernehmen, z.B. kp_src, kp_dst, oder ein whitelist var
-        for k in ('kp_src', 'kp_dst'):
+        ctx_key_whitelist = ['kp_src', 'kp_dst', 'merged', 'entries_old', 'entries_old_tagged']
+        for k in ctx_key_whitelist:
             if k in result_context:
                 logger.debug(f'IncludePP copying context key: {k}')
                 self.context[k] = result_context[k]
 
         logger.info("Included pipeline completed")
         log_context(self.context, 'IncludePP sub-pipeline after run')
-
-        return

@@ -131,11 +131,12 @@ def _init_mapping(repo):
     # Attempt to import core modules (best-effort); allow failures but continue.
     core_modules = []
     core_names = ['resourceTask',
-                  'frameResourceTasks',
-                  'storageResourceTasks',
+                  'frameResourceTask',
+                  'storageResourceTask',
                   'readerTask',
                   'includeTaskgroupTask',
                   'includePipelineTask',
+                  'fileTask',
                   'task']
     pkg = __package__
     logger.debug(f"Importing core task modules from package: {pkg}")
