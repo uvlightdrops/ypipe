@@ -64,12 +64,12 @@ class StoreFrameGroupResourceTask(FrameResourceTask):
         logger.debug("StoreFrameGroupResourceTask storing frame group resource to frame cache")
         self.prepare()
 
-        frame_group_name = self.item
-        frame_group_dict = self.context[self.item]
+        frame_group_name = self.frame_group_name or self.item
+        frame_group = self.context.get(frame_group_name, None)
         #frame_group_dict = self.context[self.config['args']['in']]
 
-        logger.debug('frame group to store - keys: %s, %s', frame_group_dict.keys(), self.name)
-        self.context['fc'].store_frame_group(frame_group_name, frame_group_dict)
+        #logger.debug('frame group to store - keys: %s, %s', frame_group_dict.keys(), self.name)
+        self.context['fc'].store_frame_group(frame_group_name, frame_group)
 
 
 class ReadFrameResourceTask(FrameResourceTask):
@@ -95,29 +95,44 @@ class DebugFrameGroupResourceTask(FrameResourceTask):
     def run(self):
         self.prepare()
 
-        logger.debug("DebugFrameGroupResourceTask self.frame_group_name %s", self.frame_group_name)
         # if no frame_group_name arg use group = corresponds to loop item
         frame_group_name = self.args.get('frame_group_name', None) or self.group
         logger.debug("DebugFrameGroupResourceTask frame group name %s", frame_group_name)
         fg = self.context['fc'].get_frame_group(frame_group_name)
         for k, v in fg.items():
             logger.debug("frame %s: rows %d, cols %d", k, v.shape[0], v.shape[1])
-            logger.debug(v.head(3))
+            #logger.debug(v.head(3))
 
-# means output to file or db
+
+# XXX currently gets date from context , NOT from frame cache
+# means output to file or db just one sheet
 class WriteFrameResourceTask(FrameResourceTask):
     def __init__(self, *args):
         super().__init__(*args)
         logger.debug("WriteFrameResourceTask init frame_group_name: %s", self.frame_group_name)
+        self.writer = self.context['fc'].get_writer(self.group)
 
     def run(self):
         self.prepare()
 
+        group = self.group or self.item
+        self.writer.set_dst(self.context['data_out_path'].joinpath(group))
+        buffer = self.context.get(group, None)
+        #buffer = self.context['fc'].get_frame(group, None)
+        if buffer is None:
+            logger.error("WFRTask: no buffer found in context for group %s", group)
+            return
+        logger.debug(buffer.head(3))
+        self.writer.set_buffer(group, buffer)
+        self.writer.init_writer_all()
+        self.writer.write()
+
         #fg = self.context['fc'].get_frame_group(self.frame_group_name)
         #logger.debug('framegroup %s, keys to write: %s', self.frame_group_name, fg.keys())
-        self.context['fc'].write_frame_group(self.frame_group_name)
         #self.context['fc'].write_frame_group(self.frame_group_name, fg)
         logger.debug("writeFrameGroupTask wrote frame group %s ", self.frame_group_name)
+"""
+"""
 
 
 class WriteFrameGroupResourceTask(FrameResourceTask):
@@ -131,7 +146,7 @@ class WriteFrameGroupResourceTask(FrameResourceTask):
         frame_group_name = self.frame_group_name or self.item
 
         fg = self.context['fc'].get_frame_group(frame_group_name)
-        logger.debug('framegroup %s, keys to write: %s', frame_group_name, fg.keys())
+        logger.debug('"%s", keys to write: %s', frame_group_name, fg.keys())
 
         self.context['fc'].write_frame_group(frame_group_name)
         logger.debug("WriteFrameGroupResourceTask wrote frame group %s ", frame_group_name)

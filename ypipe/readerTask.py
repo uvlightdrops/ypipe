@@ -18,4 +18,4 @@ class DbReaderTask(ReaderTask):
 
     def run(self):
         self.resource.read(self.args['fn'])
-        self.context[self.provides[0]] = self.resource
+        self.context[self.provides[0]['key']] = self.resource

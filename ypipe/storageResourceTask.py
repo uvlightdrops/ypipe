@@ -112,7 +112,7 @@ class ModifyStorageResourceTask(StorageResourceTask):
         self.resource.generate_pykeepass_tree()
 
         #logger.debug(self.resource.groups)
-        self.context[self.provides[0]] = self.resource
+        self.context[self.provides[0]['key']] = self.resource
         print(self.context[backup[0]] == self.resource)
 
 
@@ -124,6 +124,7 @@ class WriteStorageResourceTask(StorageResourceTask):
         self.fetch(filename=self.fn)
         self.resource.do_save()
         logger.debug("WriteStorageResourceTask: resource %s saved", self.resource)
+
 
 from yldpipeNG.statsSupport import StatsSupport
 

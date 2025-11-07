@@ -26,6 +26,7 @@ class IncludePipelineTask(Task):
         super().__init__(name, config, context)
 
     def run(self):
+        logger.debug('')
 
         include = self.args.get('include')
         if not include:
@@ -33,7 +34,7 @@ class IncludePipelineTask(Task):
             return False
 
         include_path = self.context['config_dir'].joinpath(include).with_suffix('.yml')
-        logger.debug("IncludePipelineTask loading include from: %s", include_path)
+        logger.debug("=== ---------------   IPT loading: %s", include)
         # resolve include path and load YAML (reuse Pipeline.from_config_file if convenient)
         try:
             if include_path.exists():
@@ -82,8 +83,8 @@ class IncludePipelineTask(Task):
         #log_context(sub_view, 'IncludePipelineTask subview')
 
         sub_pipeline.is_subpipeline = True
+        sub_pipeline.forwarded_resources = self.args.get('forward_resources', [])
         sub_pipeline.register_task_defs_from_list(task_defs) #, templ_d=sub_view)
-
 
         ### RUN ALL TASKS IN SUB-PIPELINE
         try:
@@ -102,11 +103,16 @@ class IncludePipelineTask(Task):
         # last task of the pipeline has current context
 
         # nur erlaubte Keys übernehmen, z.B. kp_src, kp_dst, oder ein whitelist var
-        ctx_key_whitelist = ['kp_src', 'kp_dst', 'merged', 'entries_old', 'entries_old_tagged']
+
+        ctx_key_whitelist = ['kp_src', 'kp_dst']
+        add = self.context['fc'].tkeys_all
+        #logger.debug(f'IncludePP adding fc.tkeys_all to context whitelist: {add}')
+
+        ctx_key_whitelist += add  #, 'merged', 'entries_old', 'entries_old_tagged']
         for k in ctx_key_whitelist:
             if k in result_context:
                 logger.debug(f'IncludePP copying context key: {k}')
                 self.context[k] = result_context[k]
 
-        logger.info("Included pipeline completed")
+        logger.info("--- Included pipeline completed")
         log_context(self.context, 'IncludePP sub-pipeline after run')

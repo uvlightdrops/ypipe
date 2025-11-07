@@ -112,6 +112,7 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
         self.phase = ''
         self.options = kwargs['options'] if 'options' in kwargs else {}
         self.is_subpipeline = kwargs.get('is_subpipeline', False)
+        self.forwarded_resources = []
 
         # XXX DEV
         fnlist = self.load_config('fnlist.yml').get('fnlist')
@@ -228,6 +229,7 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
         logger.debug(f"load_task_definitions: found {len(task_defs)} task definitions in pipeline {self.plname}")
         self.register_task_defs_from_list(task_defs)
 
+
     def register_task_defs_from_list(self, task_defs, *args, **kwargs):
         """Rendern und registrieren einer Liste von task-definitions in dieser Pipeline.
         templ_d: für Template-Rendering.
@@ -253,6 +255,8 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
             Task.validate_config(t_def_rendered)
             # actually register the task
             self.register_task_def(t_def_rendered)
+
+        self.build_resource_edges()
 
 
     def register_task_def(self, t_def):
@@ -293,6 +297,31 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
         # expose app_name for tasks
         context['app_name'] = self.app_name
         return context
+
+    def build_resource_edges(self):
+        """Füge Kanten von Provider->Consumer basierend auf 'provides'/'req_resources' hinzu."""
+
+        for consumer_name, t_def in self.task_defs.items():
+
+            # check for all required resources
+            for res in t_def.get('req_resources', []):
+                if res in self.forwarded_resources:
+                    logger.debug(f"Resource {res} is forwarded, skipping provider search for consumer {consumer_name}")
+                    continue
+
+                providers = []
+                for t_name, td in self.task_defs.items():
+                    p_dlist = td.get('provides', [])
+                    p_keys = [p['key'] for p in p_dlist]
+                    if res in p_keys and t_name != consumer_name:
+                        providers.append(t_name)
+                        logger.debug(f"Task {t_name} provides: {p_keys}")
+                if not providers:
+                    raise RuntimeError(f"No provider for resource '{res}' required by '{consumer_name}'")
+
+                for prov in providers:
+                    logger.debug(f"edge prov {prov} to cons {consumer_name} for resrc {res}")
+                    self.G.add_edge(prov, consumer_name)
 
 
     def walk_resource_dependencies(self, task_name, context, stack=None, done=None):
@@ -403,6 +432,7 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
             #log_context(context, "Sub-pipeline initial context from parent")
         else:
             context = self.prepare_context()
+        logger.debug('%s is_subpipeline: %s', self.plname, self.is_subpipeline)
         """
         """
 
@@ -410,14 +440,14 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
         # keep runtime context available after run for callers who need to sync state
 
         for name in nx.topological_sort(self.G):
-            logger.debug("Pipeline 'run_all' calls _run_task %s", name)
+            #logger.debug(" 'run_all' calls _run_task %s", name)
 
             ### RUN the innner task method, returns None usually
             last_task = self._run_task(name, context)
-            logger.debug(">>> run_all: last_task=%s", last_task)
+            #logger.debug(">>> run_all: last_task=%s", last_task)
 
 
-        logger.debug('%s is_subpipeline: %s', self.plname, self.is_subpipeline)
+        """
         # After all tasks done, return context from last task
         if last_task:
             logger.debug(">>> LAST TASK was %s", last_task.name)
@@ -428,10 +458,9 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
             print()
             return context
             # XXX maybe
-
-        else:
-            logger.debug(">>> run_all: last_task==None - ?? in middle of pl ")
-            return None
+        """
+        return context
+            #return None
 
 
     def _merge_context(self, parent: dict, child: dict) -> None:
@@ -454,7 +483,6 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
         task_def = self.task_defs[name]
 
         logger.debug('---------------- NEXT task %s, action: %s', name, task_def['action'])
-        log_context(context, 'Before: '+name)
 
         task = self.create_task(task_def, context)
         run_flag = self.task_defs[name].get('run')
@@ -467,6 +495,7 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
             print(f"__skipping task: ({name})")
             return None
 
+
         loop_items = self.task_defs[name].get('loop_items', None)
         #logger.debug(f"Task {name} loop_items: {loop_items}")
 
@@ -476,6 +505,7 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
             if req not in context:
                 logger.error('Task %s requires %s but not in context!', name, req)
                 if DEBUG:
+                    console.print(Text(f"WARN: skip task: {name}", style="bold red"))
                     logger.debug('Task %s skipping', name)
                     skip_task = True
                     break
@@ -486,6 +516,7 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
         if skip_task:
             return None
 
+        log_context(context, 'Before: '+name)
         console.print(Text(f"Running task: {name}", style="bold green"))
         #logger.debug(f"Start {name} - {task.__class__}")
         #logger.debug(f"loop_items: {loop_items}")
@@ -504,7 +535,7 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
 
         log_context(context, '_run_task done: '+name)
         # only for context transfer at end of subpipeline
-        logger.debug(">>> _run_task returning task object %s", task.name)
+        #logger.debug(">>> _run_task returning task object %s", task.name)
         return task
 
 
@@ -536,8 +567,8 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
                 if node.startswith('_'):
                     continue
                 node_tree = tree.add(Text(node, style=node_style))
-                #for succ in self.G.successors(node):
-                    #dep = node_tree.add(Text('__'+succ, style=succ_style))
+                for succ in self.G.successors(node):
+                    dep = node_tree.add(Text('__'+succ, style=succ_style))
                     #node_tree.add(dep)
             console.print(tree)
         except nx.NetworkXUnfeasible:

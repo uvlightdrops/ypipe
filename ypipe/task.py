@@ -94,6 +94,10 @@ class StopTask(Task):
         #raise Exception("StopTask reached, stopping pipeline")
         sys.exit()
 
+class NoopTask(LoopMixin, Task):
+    def run(self):
+        logger.info(f"NoopTask {self.name} doing nothing")
+
 class EchoTask(LoopMixin, Task):
     def run(self):
         self.prepare()

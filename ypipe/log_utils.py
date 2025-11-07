@@ -33,7 +33,7 @@ def log_context(context, msg):
     logger.debug('----------- ======== %s', msg.strip())
     for k in context.keys():
         if k not in keys_hide:
-            logger.debug('     ctx[%s]: %s', k, type(context[k]))
+            logger.debug('%s:      %s', k, type(context[k]))
             if type(context[k]) == type({}):
                 logger.debug('     keys: %s', context[k].keys())
 

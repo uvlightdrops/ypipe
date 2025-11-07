@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 
 class MtaskModel(BaseModel):
@@ -18,6 +18,12 @@ class ArgsModel(BaseModel):
     group: str = ''
     frame_group: str = ''
     frame_group_dict: bool = False
+
+
+class ProvidesModel(BaseModel):
+    key: str
+    type: str
+
 
 class TaskModel(BaseModel):
     ### Required
@@ -39,7 +45,7 @@ class TaskModel(BaseModel):
 
     # (opt.) Resources provided if this tasks was run
     # these keys are the same for context and for framecache
-    provides: List[str] = []
+    provides: List[ProvidesModel] = []
     # if a dict of results is provided, e.g. when using loop_items
     provided_d: List[str] = []
     provides_dict: bool = False
