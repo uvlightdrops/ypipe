@@ -13,13 +13,13 @@ def run_modify_and_register(self):
         new_res = self.resource.clone()
     else:
         # falls noch kein Wrapper verwendet wird, wrap + clone
-        new_res = ResourceWrapper(self.resource, self.provides[0]).clone()
+        new_res = ResourceWrapper(self.resource, self.provides['main']).clone()
 
     # perform modifications an new_res.inner ...
     # z.B. new_res.inner.modify(...)
 
     # neuen key erzeugen und in context sowie (optional) storage_cache speichern
-    new_key = f"{self.provides[0]}_mod"  # oder f"{self.provides[0]}_v{new_res.version}"
+    new_key = f"{self.provides['main']}_mod"  # oder f"{self.provides['main']}_v{new_res.version}"
     self.context[new_key] = new_res
     # falls StorageCache genutzt wird, registriere neue Version dort (erweitere API ggf.)
     try:
@@ -81,8 +81,8 @@ class StorageResourceTask(ResourceTask):
         resource.src_or_dst = sod
 
         # Das hier ist net am rechten platz, sollte temporär nur für run methode nötig sein
-        logger.debug("SRT - resource assign to context key %s", self.provides[0]['key'])
-        self.context[self.provides[0]['key']] = resource
+        logger.debug("SRT - resource assign to context key %s", self.provides['main']['key'])
+        self.context[self.provides['main']['key']] = resource
         logger.debug("SRT - task %s provides resource %s ", self.name, resource)
         if self.type == 'kdbx':
             logger.debug("SRT - len groups: %s", len(resource.groups))
@@ -112,7 +112,7 @@ class ModifyStorageResourceTask(StorageResourceTask):
         self.resource.generate_pykeepass_tree()
 
         #logger.debug(self.resource.groups)
-        self.context[self.provides[0]['key']] = self.resource
+        self.context[self.provides['main']['key']] = self.resource
         print(self.context[backup[0]] == self.resource)
 
 

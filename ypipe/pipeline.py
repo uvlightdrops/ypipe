@@ -24,7 +24,7 @@ from .log_utils import log_context
 logger = setup_logger(__name__, __name__+'.log')
 console = Console()
 #print("Logger for pipeline set up.", logger._logfile)
-DEBUG=True
+DEBUG=False
 pre = 'yp'
 
 from .context_keys import context_keys
@@ -311,8 +311,9 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
 
                 providers = []
                 for t_name, td in self.task_defs.items():
-                    p_dlist = td.get('provides', [])
-                    p_keys = [p['key'] for p in p_dlist]
+                    p_d = td.get('provides', {})
+                    logger.debug(f"Checking task {t_name} for provides: {p_d}")
+                    p_keys = [v['key'] for p, v in p_d.items()]
                     if res in p_keys and t_name != consumer_name:
                         providers.append(t_name)
                         logger.debug(f"Task {t_name} provides: {p_keys}")
@@ -323,13 +324,14 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
                     logger.debug(f"edge prov {prov} to cons {consumer_name} for resrc {res}")
                     self.G.add_edge(prov, consumer_name)
 
-
+    """
     def walk_resource_dependencies(self, task_name, context, stack=None, done=None):
-        """
-        Rekursive Abarbeitung von resourcen-basierten Abhängigkeiten.
-        - 'stack' ist die aktuelle Rekursionskette (Liste) zur Zykluserkennung
-        - 'done' ist ein Set der bereits ausgeführten Tasks (verhindert Doppel-Run)
-        """
+        #"
+        #Rekursive Abarbeitung von resourcen-basierten Abhängigkeiten.
+        #- 'stack' ist die aktuelle Rekursionskette (Liste) zur Zykluserkennung
+        #- 'done' ist ein Set der bereits ausgeführten Tasks (verhindert Doppel-Run)
+        #"
+        
         # Initialisiere Tracking-Objekte
         if stack is None:
             stack = []
@@ -405,25 +407,27 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
 
         # Entferne Task aus aktuellem Stack beim Zurückkehren
         stack.pop()
+        """
 
     def run_all(self):
         print("-----------------------------------------------------------")
 
         self.render_dag()
 
-        outsub = 'SUBPIPE' if self.is_subpipeline else 'MAINPIPE'
-        output = "FINAL RUN ORDER: %s = %s" %(self.plname, outsub)
+        if DEBUG:
+            outsub = 'SUBPIPE' if self.is_subpipeline else 'MAINPIPE'
+            output = "FINAL RUN ORDER: %s = %s" %(self.plname, outsub)
 
-        console.print(Text(output, style="bold blue"))
-        # output of task run order
-        for name in nx.topological_sort(self.G):
-            output = name
-            #logger.debug("Task to run: %s", name)
-            #logger.debug(self.task_defs[name])
-            if self.task_defs[name].get('run', True) == False:
-                output = ' (skipped) '+name
-            print(output)
-        print()
+            console.print(Text(output, style="bold blue"))
+            # output of task run order
+            for name in nx.topological_sort(self.G):
+                output = name
+                #logger.debug("Task to run: %s", name)
+                #logger.debug(self.task_defs[name])
+                if self.task_defs[name].get('run', True) == False:
+                    output = ' (skipped) '+name
+                print(output)
+            print()
 
         # create new context here only if this is no sub-pipeline
         if self.is_subpipeline:
@@ -441,26 +445,12 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
 
         for name in nx.topological_sort(self.G):
             #logger.debug(" 'run_all' calls _run_task %s", name)
-
             ### RUN the innner task method, returns None usually
+            log_context(context, f"Before calling _run_task {name}")
             last_task = self._run_task(name, context)
             #logger.debug(">>> run_all: last_task=%s", last_task)
 
-
-        """
-        # After all tasks done, return context from last task
-        if last_task:
-            logger.debug(">>> LAST TASK was %s", last_task.name)
-            log_context(context, "Final after ran subPL "+self.plname+" and return as result_context")
-
-            output = f"END of pipeline {self.plname}"
-            console.print(Text(output, style="bold red"))
-            print()
-            return context
-            # XXX maybe
-        """
         return context
-            #return None
 
 
     def _merge_context(self, parent: dict, child: dict) -> None:
@@ -484,7 +474,9 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
 
         logger.debug('---------------- NEXT task %s, action: %s', name, task_def['action'])
 
+        #log_context(context, 'In _run_task before call create_task: '+name)
         task = self.create_task(task_def, context)
+        log_context(context, 'In _run_task after call create_task: '+name)
         run_flag = self.task_defs[name].get('run')
         skip_task = False
         #logger.debug(f"Task {name} run flag: {run_flag}")
@@ -513,10 +505,11 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
             else:
                 logger.debug('Task %s got required %s from context', name, req)
 
+        log_context(context, 'In _run_task after req check: '+name)
         if skip_task:
             return None
 
-        log_context(context, 'Before: '+name)
+        #log_context(context, 'Before: '+name)
         console.print(Text(f"Running task: {name}", style="bold green"))
         #logger.debug(f"Start {name} - {task.__class__}")
         #logger.debug(f"loop_items: {loop_items}")

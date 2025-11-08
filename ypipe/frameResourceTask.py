@@ -53,7 +53,7 @@ class StoreFrameResourceTask(FrameResourceTask):
             self.context['fc'].store_frame(self.frame_group_name, self.group, frame)
             logger.debug('provides: %s', self.provides)
             if self.provides:
-                self.context[self.provides[0]] = frame
+                self.context[self.provides['main']] = frame
 
 
 class StoreFrameGroupResourceTask(FrameResourceTask):
@@ -119,10 +119,12 @@ class WriteFrameResourceTask(FrameResourceTask):
         self.writer.set_dst(self.context['data_out_path'].joinpath(group))
         buffer = self.context.get(group, None)
         #buffer = self.context['fc'].get_frame(group, None)
+        if self.provide_main:
+            p_key_main = self.provide_main.get('key')
         if buffer is None:
-            logger.error("WFRTask: no buffer found in context for group %s", group)
+            logger.error("WFRTask: %s no buffer in context for group %s", self.config['name'], group)
             return
-        logger.debug(buffer.head(3))
+        #logger.debug(buffer.head(3))
         self.writer.set_buffer(group, buffer)
         self.writer.init_writer_all()
         self.writer.write()
@@ -150,5 +152,22 @@ class WriteFrameGroupResourceTask(FrameResourceTask):
 
         self.context['fc'].write_frame_group(frame_group_name)
         logger.debug("WriteFrameGroupResourceTask wrote frame group %s ", frame_group_name)
+
+
+class ModifyFrameResourceTask(FrameResourceTask):
+    def __init__(self, *args):
+        super().__init__(*args)
+
+    def run(self):
+        self.prepare()
+
+        group = self.group or self.item
+        frame = self.context['fc'].get_frame(self.frame_group_name, group)
+        logger.debug("ModifyFrameResourceTask modifying frame group %s, group %s", self.frame_group_name, group)
+
+
+        # store modified frame back to frame cache
+        self.context['fc'].store_frame(self.frame_group_name, group, frame)
+        logger.debug("ModifyFrameResourceTask stored modified frame for group %s", group)
 
 

@@ -9,6 +9,8 @@ class ReaderTask(Task):
         super().__init__(*args)
         self.sc = self.context['storage_cache']
 
+
+
 class DbReaderTask(ReaderTask):
     def __init__(self, *args):
         super().__init__(*args)
@@ -18,4 +20,4 @@ class DbReaderTask(ReaderTask):
 
     def run(self):
         self.resource.read(self.args['fn'])
-        self.context[self.provides[0]['key']] = self.resource
+        self.context[self.provides['main']['key']] = self.resource

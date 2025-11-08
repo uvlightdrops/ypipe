@@ -195,7 +195,7 @@ class TaskFactory:
         mapp = _get_mapp(context['repo'])
         if t_def['name'] == 'initSR_kp_src':
             logger.debug('TaskFactory creating initSR_kp_src task')
-            log_context(context, "TaskFactory context")
+            #log_context(context, "TaskFactory context")
 
 
         if action in mapp:
