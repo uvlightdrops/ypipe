@@ -30,7 +30,7 @@ class Task: #(YamlConfigSupport):
         self.args = self.config.get('args', {})
         self.req_resources = self.config.get('req_resources', [])
         self.provides = self.config.get('provides', {})
-        self.provide_main = self.provides.get('main', None)
+        self.provide_main = self.provides.get('main', {})
         logger.debug(f"Task {self.name} provides: {self.provides}")
 
     def __repr__(self):

@@ -29,9 +29,6 @@ pre = 'yp'
 
 from .context_keys import context_keys
 
-def get_cfg_context(app):
-    # Return the prepared config dict from app
-    return app.config_d
 
 def render_template(obj, context):
     if isinstance(obj, str):
@@ -103,31 +100,28 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
         self.repo = kwargs.get('repo', None)
         self.app_name = kwargs.get('app_name', 'stubapp')
         self.project_dir = kwargs.get('project_dir', self.repo.joinpath(self.app_name))
+        # the next ones must be set so we can call YamlConfigSupport methods
         self.master_config_dir = kwargs.get('master_config_dir', Path.cwd().joinpath('data_master'))
         self.config_dir = self.master_config_dir.joinpath(self.app_name)
         self.data_path = kwargs.get('data_path')
+        self.phase = ''
+        self.sub = self.app_name
+        self.app_type = kwargs.get('app_type', 'tree')
+        fnlist = self.load_config('fnlist.yml').get('fnlist')
+        #logger.debug('fnlist: %s', fnlist)
+        self.cache_configs(fnlist)
+        self.init_config_profile()
+        # yamlconfigsupport DONE
+
         self.plname = kwargs.get('plname', 'yp_default')
         logger.debug(f"Pipeline init: app_name={self.app_name}, pl_name={self.plname}, data_path={self.data_path}")
-        self.sub = self.app_name
-        self.phase = ''
         self.options = kwargs['options'] if 'options' in kwargs else {}
         self.is_subpipeline = kwargs.get('is_subpipeline', False)
         self.forwarded_resources = []
 
         # XXX DEV
-        fnlist = self.load_config('fnlist.yml').get('fnlist')
-        #logger.debug('fnlist: %s', fnlist)
-        #fnlist = ['kp_si', 'kp_wanted_logic']
-        self.app_type = kwargs.get('app_type', 'tree')
         # YamlConfigSupport
         #self.cfg_kp_si = self.load_config('kp_si.yml')
-
-        self.use_legacy_app = kwargs.get('use_legacy_app')
-        #logger.debug(f"Pipeline use_legacy_app: {self.use_legacy_app}")
-        if self.use_legacy_app == False:
-            # so we use out own config loading from YamlConfigSupport
-            self.cache_configs(fnlist)
-            self.init_config_profile()
 
         if not self.config_dir.joinpath(self.plname + '.yml').exists():
             raise RuntimeError(f"Pipeline init: config file {self.plname + '.yml'} not found in {self.config_dir}!")
@@ -194,17 +188,11 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
     #    pass
 
     def init_fc(self):
-        if self.use_legacy_app:
-            self.fc.phase = self.app.phase
-            self.fc.phase_subdir = self.app.phase_subdir
-        elif self.use_legacy_app == False:
-            self.fc.phase = 'p1'
-            self.fc.phase_subdir = 'p1'
-        else:
-            raise RuntimeError("Pipeline init_fc: use_legacy_app not set!")
+        self.fc.phase = 'p1'
+        self.fc.phase_subdir = 'p1'
 
         kp_list = self.config_list() + ['profile']
-        #logger.debug('kp_list: %s', kp_list)
+        logger.debug('kp_list: %s', kp_list)
         """
         for attr in kp_list:
             setattr(self.fc, 'cfg_'+attr, getattr(self, 'cfg_'+attr))
@@ -283,8 +271,6 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
         context['repo'] = self.repo
         context['result'] = None
         context['fc'] = self.fc
-        if self.use_legacy_app:
-            context['app'] = self.app
         context['storage_broker'] = self.storage_broker
         context['storage_cache'] = self.storage_cache
         context['data_path'] = self.data_path
@@ -312,16 +298,16 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
                 providers = []
                 for t_name, td in self.task_defs.items():
                     p_d = td.get('provides', {})
-                    logger.debug(f"Checking task {t_name} for provides: {p_d}")
+                    #logger.debug(f"Checking task {t_name} for provides: {p_d}")
                     p_keys = [v['key'] for p, v in p_d.items()]
                     if res in p_keys and t_name != consumer_name:
                         providers.append(t_name)
-                        logger.debug(f"Task {t_name} provides: {p_keys}")
+                        #logger.debug(f"Task {t_name} provides: {p_keys}")
                 if not providers:
                     raise RuntimeError(f"No provider for resource '{res}' required by '{consumer_name}'")
 
                 for prov in providers:
-                    logger.debug(f"edge prov {prov} to cons {consumer_name} for resrc {res}")
+                    #logger.debug(f"edge prov {prov} to cons {consumer_name} for resrc {res}")
                     self.G.add_edge(prov, consumer_name)
 
     """

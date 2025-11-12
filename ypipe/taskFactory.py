@@ -132,6 +132,7 @@ def _init_mapping(repo):
     core_modules = []
     core_names = ['resourceTask',
                   'frameResourceTask',
+                  'iaFrameResourceTask',
                   'storageResourceTask',
                   'readerTask',
                   'includeTaskgroupTask',

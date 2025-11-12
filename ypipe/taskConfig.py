@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, RootModel
 from typing import List, Dict, Any, Optional
 
 
@@ -20,10 +20,12 @@ class ArgsModel(BaseModel):
     frame_group_dict: bool = False
 
 
-class ProvidesModel(BaseModel):
+class ProvideItem(BaseModel):
     key: str
     type: str
 
+#class ProvidesModel(RootModel):
+#    root: Dict[str, ProvideItem]
 
 class TaskModel(BaseModel):
     ### Required
@@ -45,7 +47,8 @@ class TaskModel(BaseModel):
 
     # (opt.) Resources provided if this tasks was run
     # these keys are the same for context and for framecache
-    provides: List[ProvidesModel] = []
+    provides: Dict[str, ProvideItem] = {}
+    #provides: Dict[str, ProvidesModel] = {}
     # if a dict of results is provided, e.g. when using loop_items
     provided_d: List[str] = []
     provides_dict: bool = False
