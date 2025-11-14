@@ -126,18 +126,20 @@ class WriteStorageResourceTask(StorageResourceTask):
         logger.debug("WriteStorageResourceTask: resource %s saved", self.resource)
 
 
+
 from yldpipeNG.statsSupport import StatsSupport
 
-class CopyStorageDataTask(StatsSupport, LoopMixin, StorageResourceTask):  #, StatsSupport):
+class CopyStorageDataTask(StorageResourceTask, StatsSupport, LoopMixin):
     def __init__(self, *args):
-        super().__init__(*args)
+        StorageResourceTask.__init__(self, *args)
+
         self.kp_src = self.context['kp_src']
         self.kp_dst = self.context['kp_dst']
         self.loop_copy_bypath = self.args.get('loop_copy_bypath', [])
         #logger.debug(self.kp_src.groups)
 
     def run(self):
-        self.stats_init()
+        self.stats_init(offset=1)
         # some tasks use framecache even if they belong to storage taks category
         self.prepare()
 
@@ -164,6 +166,7 @@ class CopyStorageDataTask(StatsSupport, LoopMixin, StorageResourceTask):  #, Sta
         # XXX use dataframe to update the table
 
         for entry in group_src.entries:
+            #logger.debug('self.count_err: %s', self.count_err)
             row = {}
             for attr in attrs:
                 if attr.endswith('_old'):

@@ -13,6 +13,7 @@ from typing import Any, cast, Dict
 
 # Mapping cache
 _mapp: Dict[str, Any] = None
+_mapp_tr: Dict[str, Any] = None
 
 # Base Task classes placeholders; will try to import the real ones lazily
 Task = None
@@ -33,16 +34,17 @@ def import_task_modules_from_dir(directory):
     """
     modules = []
     base = Path(directory)
-
+    logger.debug(f"Importing task modules from directory: {base}")
     if not base.exists() or not base.is_dir():
-        logger.debug(f"Task modules directory `{base}` not found or not a directory, skipping import.")
+        logger.debug(f"Task mod directory `{base}` not found or not a dir, skipping import.")
         return modules
 
     for path in sorted(base.glob('*.py')):
+        #logger.debug(f"Importing modules from {path}")
         if path.name.startswith('__'):
             continue
         modulename = f"{base.name}.{path.stem}"
-        logger.debug(f"Importing module {modulename} from {path}")
+        #logger.debug(f"Importing module {modulename} from {path}")
         try:
             spec = importlib.util.spec_from_file_location(modulename, str(path))
             if spec and spec.loader:
@@ -60,7 +62,7 @@ def import_task_modules_from_dir(directory):
 # Simple implementation to collect task classes from modules.
 # This is intentionally conservative: it picks up classes whose name ends with
 # 'Task' and maps a simple action key (lowercase name without 'Task') to the class.
-def get_task_classes(modules):
+def get_task_classes(modules, suffix='Task'):
     mapping = {}
     for mod in modules:
         if not mod:
@@ -69,8 +71,13 @@ def get_task_classes(modules):
             # Skip classes that are defined elsewhere (not in this module)
             if getattr(obj, '__module__', None) != getattr(mod, '__name__', None):
                 continue
-            if name.endswith('Task'):
-                key = name[0].lower() + name[1:-4] # lowercase first letter, strip 'Task'
+            if name == suffix:
+                continue  # skip base Task class itself
+            if name.endswith(suffix):
+                #logger.debug(f"Discovered class: {name} in module {mod.__name__}")
+                name = name.rstrip(suffix)
+                # lowercase first letter, rest as is
+                key = name[0].lower() + name[1:]
                 mapping[key] = obj
     return mapping
 
@@ -91,9 +98,9 @@ def _init_mapping(repo):
         # Mapping already initialized — nothing to do.
         return
     extra_modules = []
+
     try:
         # Use a local import for Path to keep module-level imports minimal and
-        # to make the scope of this helper function explicit.
         from pathlib import Path as _Path
 
         # Try to import the project-specific `env` module which may define
@@ -103,27 +110,23 @@ def _init_mapping(repo):
             # (for example in test or when merely showing CLI help).
             from env import project_dir as PROJECT_DIR_LOCAL  # type: ignore
             # If env is present, prefer project-local custom_tasks.
-            custom_dir = _Path(PROJECT_DIR_LOCAL) / 'custom_tasks'
+            custom_tasks_dir = _Path(PROJECT_DIR_LOCAL) / 'custom_tasks'
             logger.debug("Resolved PROJECT_DIR from env module: %s", PROJECT_DIR_LOCAL)
         except Exception:
             logger.debug("Could not import project-local `env` module; falling back to repo-level heuristics for `custom_tasks` directory.")
             # pkg_dir is expected to be .../ypipe/ypipe; go two levels up to reach repo root
-            custom_dir = repo.joinpath('custom_tasks')
+            custom_tasks_dir = repo.joinpath('custom_tasks')
 
-        # If the candidate custom_dir doesn't exist, fall back to the package-local one.
-        # This ensures we still load bundled `custom_tasks` shipped with the package.
-        if not custom_dir.exists():
-            logger.debug(f"Custom tasks directory `{custom_dir}` does not exist; falling back to package-local `custom_tasks`.")
-            custom_dir = _Path(__file__).resolve().parent / 'custom_tasks'
+        if custom_tasks_dir.exists():
+            logger.debug(f"Loading extra task modules from custom_dir: {custom_tasks_dir}")
+            # Discover and import any task modules under the selected custom_dir.
+            # This function may return an empty list if no modules found.
+            extra_modules = import_task_modules_from_dir(custom_tasks_dir)
 
-        logger.debug(f"Loading extra task modules from custom_dir: {custom_dir}")
-        # Discover and import any task modules under the selected custom_dir.
-        # This function may return an empty list if no modules found.
-        extra_modules = import_task_modules_from_dir(custom_dir)
     except Exception as e:
         # Don't raise here: failing to load extra modules is non-fatal. Log a
         # warning so the user can debug missing custom task discovery.
-        logger.warning(f"Could not load extra task modules from project_dir: {e}")
+        logger.warning(f"Could not load extra modules from project_dir: {e}")
         extra_modules = []
 
     # Combine core task modules with any project-specific ones and create the mapping.

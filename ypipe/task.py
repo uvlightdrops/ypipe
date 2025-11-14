@@ -84,10 +84,6 @@ class Task: #(YamlConfigSupport):
         """ subclass """
         return None
 
-    def stats_init(self):
-        pass
-    def stats_report(self, name):
-        pass
 
 
 class StopTask(Task):

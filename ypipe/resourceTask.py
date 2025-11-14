@@ -20,8 +20,6 @@ class ResourceTask(Task):
         self.type = self.args.get('type', None)
         self.ctx_key = self.args.get('ctx_key', None)
 
-        self.count = 0
-
     def get_resource(self):
         return self.resource
 

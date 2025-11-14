@@ -1,5 +1,8 @@
 from .resourceTask import ResourceTask
 from .loopMixin import LoopMixin
+from .transformMixin import TransformMixin
+from yldpipeNG.statsSupport import StatsSupport
+
 from flowpy.utils import setup_logger
 logger = setup_logger(__name__, __name__+'.log')
 
@@ -11,7 +14,7 @@ import pandas as pd
 # it has the legacy framecache functionality
 # tasks that have sth to do with these frames, can either load from
 # or store to it.
-class FrameResourceTask(LoopMixin, ResourceTask):
+class FrameResourceTask(LoopMixin, ResourceTask, StatsSupport):
     """ Provides a frame resource from frame cache"""
     def __init__(self, *args):
         super().__init__(*args)
@@ -46,13 +49,13 @@ class StoreFrameResourceTask(FrameResourceTask):
 
             logger.debug('42 frame group to store - keys: %s, %s', fg_d.keys(), self.name)
             #logger.debug(fg_d['Weblogic'].head(3))
-            self.context['fc'].store_frame_group(self.frame_group_name, fg_d)
+            self.fc.store_frame_group(self.frame_group_name, fg_d)
 
         else:
             logger.debug("store simple frame in frame group %s, group %s",  self.frame_group_name, self.group)
             frame = self.context[self.args['in']]
 
-            self.context['fc'].store_frame(self.frame_group_name, self.group, frame)
+            self.fc.store_frame(self.frame_group_name, self.group, frame)
             logger.debug('provides: %s', self.provides)
             if self.provides:
                 self.context[self.provides['main']] = frame
@@ -71,7 +74,60 @@ class StoreFrameGroupResourceTask(FrameResourceTask):
         #frame_group_dict = self.context[self.config['args']['in']]
 
         #logger.debug('frame group to store - keys: %s, %s', frame_group_dict.keys(), self.name)
-        self.context['fc'].store_frame_group(frame_group_name, frame_group)
+        self.fc.store_frame_group(frame_group_name, frame_group)
+
+
+class LoadFrameResourceTask(FrameResourceTask):
+    """ Load a frame resource into frame cache, uses reader, so should be named ReadFrameResourceFromSourceTask
+    """
+    def run(self):
+        self.prepare()
+
+        group = self.group or self.item
+        logger.debug("LoadFrameResourceTask group %s", group)
+
+        reader_name = group
+        fn = self.args.get('fn', None) or group
+        # XXX create a smaller cfg_si for the reader
+        # from the main kp_si in config_d
+        reader = self.fc.get_reader(
+            reader_name,
+            reader_type=self.args.get('reader_type', None),
+            cfg_si=self.context['config_d'].get('kp_si')
+            )
+        reader.set_src_dir(self.context['data_in_path'])
+        reader.set_fn(fn)
+        reader.init_reader()
+
+        reader.read(fn)
+        df = reader.get_buffer(fn)
+        #logger.debug(df.head(3))
+
+        p_key = self.provide_main.get('key')
+        self.context[p_key] = df
+
+
+
+class LoadFrameGroupResourceTask(FrameResourceTask):
+    """ Load a frame group resource into frame cache, uses reader, so should be named ReadFrameGroupResourceFromSourceTask
+    """
+    def run(self):
+        self.prepare()
+
+        frame_group_name = self.frame_group_name or self.item
+        logger.debug("LoadFrameGroupResourceTask frame group name %s", frame_group_name)
+
+        reader = self.fc.get_reader_group(frame_group_name, reader_type=self.args.get('reader_type', None), cfg_si=self.context['config_d'].get('kp_si'))
+        reader.set_src_dir(self.context['data_in_path'])
+        reader.set_fn(self.args.get('fn', None))
+        reader.init_reader()
+        reader.read_all()
+        fg = reader.buffer
+        if fg:
+            logger.debug('loaded frame group - keys: %s, %s', fg.keys(), self.name)
+
+        p_key = self.provide_main.get('key')
+        self.context[p_key] = fg
 
 
 class ReadFrameResourceTask(FrameResourceTask):
@@ -81,7 +137,7 @@ class ReadFrameResourceTask(FrameResourceTask):
         frame_group_name = self.frame_group_name
         group = self.group or self.item
         logger.debug("RFRT frame group name %s, group %s", frame_group_name, group)
-        frame = self.context['fc'].get_frame(frame_group_name, group)
+        frame = self.fc.get_frame(frame_group_name, group)
 
         self.context[self.config['name']] = frame
 
@@ -92,7 +148,7 @@ class ReadFrameGroupResourceTask(FrameResourceTask):
 
         frame_group_name = self.args.get('frame_group_name', None) or self.group
         logger.debug("ReadFrameGroupResourceTask frame group name %s", frame_group_name)
-        fg = self.context['fc'].get_frame_group(frame_group_name)
+        fg = self.fc.get_frame_group(frame_group_name)
 
         self.context[self.config['name']] = fg
 
@@ -101,7 +157,7 @@ class DebugFrameResourceTask(FrameResourceTask):
     def run(self):
         self.prepare()
         logger.debug("DebugFrameResourceTask frame group %s, group %s", self.frame_group_name, self.group)
-        frame = self.context['fc'].get_frame(self.frame_group_name, self.group)
+        frame = self.fc.get_frame(self.frame_group_name, self.group)
         logger.debug(frame.head(3))
 
 class DebugFrameGroupResourceTask(FrameResourceTask):
@@ -111,7 +167,7 @@ class DebugFrameGroupResourceTask(FrameResourceTask):
         # if no frame_group_name arg use group = corresponds to loop item
         frame_group_name = self.args.get('frame_group_name', None) or self.group
         logger.debug("DebugFrameGroupResourceTask frame group name %s", frame_group_name)
-        fg = self.context['fc'].get_frame_group(frame_group_name)
+        fg = self.fc.get_frame_group(frame_group_name)
         for k, v in fg.items():
             logger.debug("frame %s: rows %d, cols %d", k, v.shape[0], v.shape[1])
             #logger.debug(v.head(3))
@@ -122,7 +178,7 @@ class DebugFrameGroupResourceTask(FrameResourceTask):
 class WriteFrameResourceTask(FrameResourceTask):
     def __init__(self, *args):
         super().__init__(*args)
-        self.writer = self.context['fc'].get_writer(self.group, writer_type=self.args.get('writer_type', None))
+        self.writer = self.fc.get_writer(self.group, writer_type=self.args.get('writer_type', None))
 
     def run(self):
         self.prepare()
@@ -131,7 +187,7 @@ class WriteFrameResourceTask(FrameResourceTask):
 
         self.writer.set_dst(self.context['data_out_path'].joinpath(group))
         buffer = self.context.get(group, None)
-        #buffer = self.context['fc'].get_frame(group, None)
+        #buffer = self.fc.get_frame(group, None)
         if self.provide_main:
             p_key_main = self.provide_main.get('key')
         if buffer is None:
@@ -156,10 +212,10 @@ class WriteFrameGroupResourceTask(FrameResourceTask):
         # this seems a fine solution
         frame_group_name = self.frame_group_name or self.item
 
-        fg = self.context['fc'].get_frame_group(frame_group_name)
+        fg = self.fc.get_frame_group(frame_group_name)
         logger.debug('"%s", keys to write: %s', frame_group_name, fg.keys())
 
-        self.context['fc'].write_frame_group(frame_group_name)
+        self.fc.write_frame_group(frame_group_name)
         logger.debug("WriteFrameGroupResourceTask wrote frame group %s ", frame_group_name)
 
 
@@ -172,14 +228,14 @@ class ModifyFrameResourceTask(FrameResourceTask):
         self.prepare()
 
         group = self.group or self.item
-        frame = self.context['fc'].get_frame(self.frame_group_name, group)
+        frame = self.fc.get_frame(self.frame_group_name, group)
         logger.debug("ModifyFrameResourceTask modifying frame group %s, group %s", self.frame_group_name, group)
 
         # stub base class does nothing
         # subclasses implement business logic here
 
         # store modified frame back to frame cache
-        self.context['fc'].store_frame(self.frame_group_name, group, frame)
+        self.fc.store_frame(self.frame_group_name, group, frame)
         logger.debug("ModifyFrameResourceTask stored modified frame for group %s", group)
 
 
@@ -198,8 +254,8 @@ class MergeFrameResourceTask(FrameResourceTask):
         self.business_logic()
 
         # general merge class
-        #df1 = self.context['fc'].get_frame(self.args['in1'], gn_old)
-        #df2 = self.context['fc'].get_frame(self.args['in2'], self.item)
+        #df1 = self.fc.get_frame(self.args['in1'], gn_old)
+        #df2 = self.fc.get_frame(self.args['in2'], self.item)
         # somehow the ent_old_tag_xx is subcatted by case_name., NOT groups_old
         tmp1 = self.context.get(self.args['in1'], {})
         df1 = tmp1.get(self.item, None)
@@ -235,3 +291,85 @@ class MergeFrameResourceTask(FrameResourceTask):
         if not p_key in self.context:
             self.context[p_key] = {}
         self.context[p_key][group] = dfm
+
+
+class TransformFrameResourceTask(TransformMixin, FrameResourceTask):
+    def __init__(self, *args):
+        super().__init__(*args)
+
+    def run(self):
+        log_context(self.context, 'TransformFrameResourceTask run')
+        self.prepare()
+        group = self.group or self.item
+
+        df = self.context[self.args['in']]
+
+        transform = self.args.get('transform', None)
+        if transform is None:
+            return df
+
+        cfg_key = 'kp_transform_'+self.args['in']
+        cfg = self.context['config_d'][cfg_key]
+
+        df = self.apply_transformations(df, cfg)
+
+        p_key = self.provide_main.get('key')
+        self.context[p_key] = df
+        logger.debug("TransformFrameResourceTask stored transformed frame for group %s", group)
+
+
+class TransformFrameGroupResourceTask(TransformMixin, FrameResourceTask):
+    def __init__(self, *args):
+        super().__init__(*args)
+
+    def run(self):
+        log_context(self.context, 'TransformFrameGroupResourceTask run')
+        self.prepare()
+
+        frame_group_name = self.frame_group_name or self.item
+        fg = self.context.get(self.args.get('in', None))
+
+        if fg is None:
+            logger.error("TransformFGRTask: no frame group %s in context ", frame_group_name)
+            return
+
+        cfg_key = 'kp_transform_'+frame_group_name
+        cfg = self.context['config_d'][cfg_key]
+
+        for group, df in fg.items():
+            logger.debug("TransformFrameGroupResourceTask transforming frame group %s, group %s", frame_group_name, group)
+            df = self.apply_transformations(df, cfg)
+            fg[group] = df
+
+        p_key = self.provide_main.get('key')
+        logger.debug("TransformFGRTask providing key %s", p_key)
+        if p_key not in self.context:
+            self.context[p_key] = {}
+        self.context[p_key] = fg
+        logger.debug("TransformFGRTask stored transf frame group for name %s", frame_group_name)
+
+
+
+class SawFrameResourceTask(FrameResourceTask):
+    """ Simple saw task that just passes the frame through """
+    def run(self):
+        self.prepare()
+        group = self.group or self.item
+        logger.debug("SawFrameResourceTask passing through frame group %s, group %s", self.frame_group_name, group)
+        frame = self.fc.get_frame(self.frame_group_name, group)
+
+        p_key = self.provide_main.get('key')
+        self.context[p_key] = frame
+
+class SawFrameGroupResourceTask(FrameResourceTask):
+    """ Simple saw task that just passes the frame group through """
+    def run(self):
+        self.prepare()
+
+
+        frame_group_name = self.frame_group_name or self.item
+        logger.debug("SawFrameGroupResourceTask passing through frame group name %s", frame_group_name)
+        fg = self.fc.get_frame_group(frame_group_name)
+
+        p_key = self.provide_main.get('key')
+        self.context[p_key] = fg

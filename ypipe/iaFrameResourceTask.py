@@ -13,7 +13,8 @@ import pandas as pd
 
 
 class IaMergeFrameResourceTask(ConsoleMixin, FrameResourceTask):
-    """ Interaktiver Merge von zwei Frames mit Auswahl per Konsole """
+    """ Interaktiver Merge von zwei single Frames mit Auswahl per Konsole
+        legt im context ab als FG subframe  """
     def __init__(self, *args):
         super().__init__(*args)
         ConsoleMixin.__init__(self, *args)
@@ -58,12 +59,13 @@ class IaFrameResourceTask(ConsoleMixin, FrameResourceTask):
                 df = self.context.get(self.args['in'], None)
             else:
                 df = self.fc.get_frame(self.frame_group_name, self.args['in'])
-        self.edit_table(df)
+        #self.edit_table(df)
 
         # Ergebnis-DataFrame
         p_key = self.provide_main.get('key')
         if p_key not in self.context:
             self.context[p_key] = {}
         self.context[p_key][group] = df
+        self.print("DOES NOTHING YET")
         self.print(f'[green]Bearbeitung abgeschlossen. Verbleibende Zeilen: {len(df)}[/green]')
 

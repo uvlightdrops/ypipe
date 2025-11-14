@@ -90,8 +90,10 @@ class IncludePipelineTask(Task):
         try:
             logger.debug(f'subpipe {sub_plname} starting run_all()')
             result_context = sub_pipeline.run_all()
-        except Exception:
-            raise ValueError
+        except Exception as e:
+            logger.exception(f"Exception in sub-pipeline {sub_plname}: {e}")
+            print(f"Exception in sub-pipeline {sub_plname}: {e}")
+            raise e
 
 
         if result_context is not None:
