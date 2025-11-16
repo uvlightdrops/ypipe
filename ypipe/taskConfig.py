@@ -16,8 +16,11 @@ class ArgsModel(BaseModel):
     in2: str = ''
     out: str = ''
     group: str = ''
-    frame_group: str = ''
-    frame_group_dict: bool = False
+    frame_group_name: str = ''
+    frame_group_name_in: str = ''
+    frame_group_name_out: str = ''
+
+    #frame_group_dict: bool = False
 
 
 class ProvideItem(BaseModel):

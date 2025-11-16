@@ -87,9 +87,11 @@ class IncludePipelineTask(Task):
         sub_pipeline.register_task_defs_from_list(task_defs) #, templ_d=sub_view)
 
         ### RUN ALL TASKS IN SUB-PIPELINE
+        logger.debug(f'subpipe {sub_plname} starting run_all()')
         try:
-            logger.debug(f'subpipe {sub_plname} starting run_all()')
+            ### Run all tasks in the sub-pipeline
             result_context = sub_pipeline.run_all()
+
         except Exception as e:
             logger.exception(f"Exception in sub-pipeline {sub_plname}: {e}")
             print(f"Exception in sub-pipeline {sub_plname}: {e}")

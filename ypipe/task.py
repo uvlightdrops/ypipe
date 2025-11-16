@@ -4,8 +4,6 @@ from typing import List
 from yaml_config_support.yamlConfigSupport import YamlConfigSupport
 
 from .taskConfig import TaskModel, MtaskModel
-# from ResourceTask import *
-#from tr2FrTask import DumpGroups
 
 from flowpy.utils import setup_logger
 
@@ -25,6 +23,9 @@ class Task: #(YamlConfigSupport):
         #logger.debug(self.context.keys())
         # set item to None for non-looping tasks
         self.item = None
+        # For non-frameresource tasks, set this to None as a stub
+        self.frame_group_name_in = None
+        self.frame_group_name_out = None
 
         # XXX args from yaml not confuse with function args
         self.args = self.config.get('args', {})
@@ -76,6 +77,7 @@ class Task: #(YamlConfigSupport):
                     print(f"Fehler in {fname}: {e}")
         return tasks
 
+    # XXX better remove these stubs, this is not an abstract base class
     def prepare(self):
         """ subclass """
         return None

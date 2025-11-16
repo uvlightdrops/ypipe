@@ -166,9 +166,7 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
         p.phase = ''
         p.options = {}
         p.app_type = doc.get('app_type', 'tree')
-        p.use_legacy_app = False
 
-        # carry over any precomputed config dicts that may be used by prepare_context
         p.config_d = doc.get('config_d', {})
         #log_context(p.config_d, "Pipeline.from_config_doc config_d")
         p.config = doc
@@ -225,9 +223,12 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
         # prepare all config files accessible for template rendering
         templ_d = dict(self.config_d)
         #log_context(templ_d, "Template context from config_d")
+
         # add selected context keys
         dummy_ctx = self.prepare_context()
+        logger.debug("ctx type: %s", type(dummy_ctx))
         log_context(dummy_ctx, 'Dummy context for templating')
+
         keys_l = (context_keys.get('path', set()) | context_keys.get('meta', set()))
         logger.debug(f"adding context keys for templating: {keys_l}")
         for key in keys_l:
@@ -282,6 +283,7 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
         context['config_d'] = self.config_d
         # expose app_name for tasks
         context['app_name'] = self.app_name
+        logger.debug("=== prepare_context type %s for pipeline %s", type(context), self.plname)
         return context
 
     def build_resource_edges(self):
@@ -417,14 +419,13 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
 
         # create new context here only if this is no sub-pipeline
         if self.is_subpipeline:
-            logger.debug("===== ===== RUN ALL - PL is sub-pipeline, cp parent context %s", self.plname)
+            logger.debug("===== PL is sub-pipeline, cp parent context %s", self.plname)
             context = self._parent_ctx.copy()
+            log_context(self._parent_ctx, "Sub-pipeline initial context from parent")
             #log_context(context, "Sub-pipeline initial context from parent")
         else:
+            logger.debug("===== PL is main pl %s, call prepare_context. OK?", self.plname)
             context = self.prepare_context()
-        logger.debug('%s is_subpipeline: %s', self.plname, self.is_subpipeline)
-        """
-        """
 
         log_context(context, "Initial context before pipeline run")
         # keep runtime context available after run for callers who need to sync state
@@ -477,11 +478,14 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
         loop_items = self.task_defs[name].get('loop_items', None)
         #logger.debug(f"Task {name} loop_items: {loop_items}")
 
+        # runtime check if all required resources are in context
         requires = task_def.get('req_resources', [])
         #logger.debug('Task %s requires: %s', name, requires)
         for req in requires:
-            if req not in context:
-                logger.error('Task %s requires %s but not in context!', name, req)
+            #if req not in context:
+            if req not in context and not req in context['frame_groups'] and not req in context['frames']:
+
+                logger.error('Task %s requires %s but not in context (fg or f)!', name, req)
                 if DEBUG:
                     console.print(Text(f"WARN: skip task: {name}", style="bold red"))
                     logger.debug('Task %s skipping', name)

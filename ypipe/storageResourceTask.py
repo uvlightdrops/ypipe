@@ -1,7 +1,9 @@
 from .resourceTask import ResourceTask
 from .loopMixin import LoopMixin
-from flowpy.utils import setup_logger
+from yldpipeNG.statsSupport import StatsSupport
+
 import pandas as pd
+from flowpy.utils import setup_logger
 logger = setup_logger(__name__, __name__+'.log')
 from .log_utils import log_context
 
@@ -32,7 +34,7 @@ def run_modify_and_register(self):
 
 
 
-class StorageResourceTask(ResourceTask):
+class StorageResourceTask(ResourceTask, StatsSupport):
     """ A Resource with tree like behaviour to store data hierarchical
     """
     def __init__(self, *args):
@@ -127,9 +129,8 @@ class WriteStorageResourceTask(StorageResourceTask):
 
 
 
-from yldpipeNG.statsSupport import StatsSupport
 
-class CopyStorageDataTask(StorageResourceTask, StatsSupport, LoopMixin):
+class CopyStorageDataTask(StorageResourceTask, LoopMixin):
     def __init__(self, *args):
         StorageResourceTask.__init__(self, *args)
 
@@ -139,7 +140,7 @@ class CopyStorageDataTask(StorageResourceTask, StatsSupport, LoopMixin):
         #logger.debug(self.kp_src.groups)
 
     def run(self):
-        self.stats_init(offset=1)
+        self.stats_init()
         # some tasks use framecache even if they belong to storage taks category
         self.prepare()
 
@@ -153,6 +154,17 @@ class CopyStorageDataTask(StorageResourceTask, StatsSupport, LoopMixin):
             logger.error('group_src not found: %s', item['src'])
         if not group_dst:
             logger.error('group_dst not found: %s', item['dst'])
+        self.copy_group_recursive(group_src, group_dst)
+
+        # Kopiere alle Untergruppen rekursiv
+        for sub_src in group_src.subgroups:
+            #sub_dst = self.kp_dst._find_group_by_path(sub_src.path)
+            sub_dst = self.kp_dst.find_groups(path=sub_src.path, first=True)
+            logger.debug("sub_src: %s, sub_dst: %s", sub_src.path, sub_dst.path if sub_dst else 'None')
+            # call recursively
+            self.copy_group_recursive(sub_src, sub_dst)
+
+    def copy_group_recursive(self, group_src, group_dst):
         logger.debug("group_src: %s, group_dst: %s", group_src.path, group_dst.path)
         logger.debug('entries count: %s', len(group_src.entries))
 
@@ -165,6 +177,8 @@ class CopyStorageDataTask(StorageResourceTask, StatsSupport, LoopMixin):
                  kp_process_fields['kp_extra_fields'] )
         # XXX use dataframe to update the table
 
+        #logger.debug('in group %s (dst now has %d entries)',
+        #             group_dst.path, len(group_dst.entries))
         for entry in group_src.entries:
             #logger.debug('self.count_err: %s', self.count_err)
             row = {}
@@ -177,7 +191,7 @@ class CopyStorageDataTask(StorageResourceTask, StatsSupport, LoopMixin):
 
             # minor exceptions in data
             if row['username'] is None:
-                logger.warning('username is None for entry %s, set to empty string', row['title'])
+                #logger.warning('username is None for entry %s, set to empty string', row['title'])
                 row['username'] = ''
 
             # Add the copied entry to the destination group in destination database
@@ -198,6 +212,7 @@ class CopyStorageDataTask(StorageResourceTask, StatsSupport, LoopMixin):
                 self.count_err += 1
             self.count += 1
 
+        """
             # Append row to dataframe for reporting
             ldf = len(df)
             df.loc[ldf] = row
@@ -210,7 +225,8 @@ class CopyStorageDataTask(StorageResourceTask, StatsSupport, LoopMixin):
         for dt_field in dt_fields:
             df[dt_field] = df[dt_field].dt.tz_localize(None)
 
-        fc.store_frame('copyall', group_dst.name, df)
+        #fc.store_frame('copyall', group_dst.name, df)
+        """
 
         self.stats_report(name='copyall_'+group_dst.name)
 ####
@@ -227,4 +243,3 @@ class DebugStorageResourceTask(StorageResourceTask):
             logger.debug("DebugStorageResourceTask - len groups: %s", len(self.resource.groups))
             #for g in self.resource.groups:
             #    logger.debug("group: %s, entries: %s", g.path, len(g.entries))
-

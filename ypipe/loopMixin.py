@@ -1,4 +1,3 @@
-
 from flowpy.utils import setup_logger
 logger = setup_logger(__name__, __name__+'.log')
 
@@ -14,7 +13,7 @@ class LoopMixin:
         return results
     """
 
-    ## XXX rename to prepare_loop or so
+    ## XXX rename to prepare_loop_step or so
     def prepare(self, *args, **kwargs):
         #logger.debug("LoopMixin.prepare args: %s, kwargs: %s", args
         if self.context.get('loop_item', None):
@@ -28,24 +27,22 @@ class LoopMixin:
             self.group = self.args.get('group', None)
 
     def run_with_loop(self):
-        results_d = {}
         # XXX relate to inits from base classes later
         items = self.config.get('loop_items', [])
-
-        logger.debug("LoopMixin.run_with_loop items: %s", items)
-        provide_dict = self.config.get('provide_dict', False)
-
-        """
-        if self.provides:
-            provide = self.provides[0]
-            self.context[provide] = None
-
-        if provide_dict:
-            self.context[provide + '_d'] = {}
-        """
-
         if not items:
             logger.error("No loop_items defined in config for task %s", self.config.get('name', 'unknown'))
+
+        logger.debug("LoopMixin.run_with_loop items: %s", items)
+
+        if self.frame_group_name_in:
+            self.df_d = self.context.get_frame_group(self.frame_group_name_in)
+            logger.debug("Initial df_d keys: %s", self.df_d.keys())
+        # if more than one input frame(group) is needed, load them here
+        if self.args.get('in', None):
+            self.df_in = {}
+            for fg_in in self.args.get('in'):
+                self.df_in[fg_in] = self.context.get_frame_group(fg_in)
+                logger.debug("Initial df_in[%s] : %s", fg_in, self.df_in[fg_in])
 
         for item in items:
             # the current item is stored in self.item for use in run()
@@ -57,16 +54,13 @@ class LoopMixin:
             # Call the actual run method of the subclass
             self.run()
 
-            """
-            # XXX outdated,
-            logger.debug('provide_dict: %s', provide_dict)
-            if provide_dict:
-                self.context[provide+'_d'][item] = self.context['result']
-                logger.debug("Storing result in context[%s][%s]", provide+'_d', item)
-            """
 
-            # XXX useless ? or at beinning?
-            #self.context['result'] = None
+        # here at the end of all loop items, we can store the final result
+        # via context api
+        # Nur speichern, wenn das aktuelle Objekt von FrameResourceTask abgeleitet ist
+        from ypipe.frameResourceTask import FrameResourceTask
+        if isinstance(self, FrameResourceTask):
+            logger.debug("store to FG %s final df_tmp: keys %s", self.frame_group_name_out, self.df_tmp.keys())
+            self.context.store_frame_group(self.frame_group_name_out, self.df_tmp)
 
-        logger.debug(self.context['loop_item'])
-        #self.context.pop('loop_item', None)
+            self.fc.store_frame_group(self.frame_group_name_out, self.df_tmp)

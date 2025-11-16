@@ -74,8 +74,8 @@ def get_task_classes(modules, suffix='Task'):
             if name == suffix:
                 continue  # skip base Task class itself
             if name.endswith(suffix):
-                #logger.debug(f"Discovered class: {name} in module {mod.__name__}")
-                name = name.rstrip(suffix)
+                #logger.debug(f"Disc. class: {name} in {mod.__name__}")
+                name = name[:-len(suffix)]
                 # lowercase first letter, rest as is
                 key = name[0].lower() + name[1:]
                 mapping[key] = obj
@@ -197,6 +197,7 @@ class TaskFactory:
 
         # Ensure mapping is ready and then attempt to resolve the action to a class.
         mapp = _get_mapp(context['repo'])
+        #logger.debug(mapp)
         if t_def['name'] == 'initSR_kp_src':
             logger.debug('TaskFactory creating initSR_kp_src task')
             #log_context(context, "TaskFactory context")
@@ -204,8 +205,9 @@ class TaskFactory:
 
         if action in mapp:
             klass = mapp[action]
+
             # The resolved klass is likely loaded dynamically from a module; log it.
-            logger.debug(f"Creating task klass %s", klass)
+            logger.debug(f"Creating task klass %s from action %s", klass, action)
             # We intentionally instantiate the class with the canonical constructor
             # signature used across task classes: (name, definition, context).
             return cast(Any, klass)(t_def['name'], t_def, context)
