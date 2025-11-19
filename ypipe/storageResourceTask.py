@@ -39,6 +39,7 @@ class StorageResourceTask(ResourceTask, StatsSupport):
     """
     def __init__(self, *args):
         super().__init__(*args)
+        self.fg_accumulate = False
         # XXX move vars to ResourceTask? init
         # StorageResourceTask special
 
@@ -188,6 +189,7 @@ class CopyStorageDataTask(StorageResourceTask, LoopMixin):
                 else:
                     row[attr] = getattr(entry, attr)
             row['group_path_new'] = group_dst.path
+            #logger.debug('Copy entry %s to group %s', row['title'], group_dst.path)
 
             # minor exceptions in data
             if row['username'] is None:
@@ -241,5 +243,6 @@ class DebugStorageResourceTask(StorageResourceTask):
         logger.debug("type: %s", self.type)
         if self.type == 'kdbx':
             logger.debug("DebugStorageResourceTask - len groups: %s", len(self.resource.groups))
+
             #for g in self.resource.groups:
             #    logger.debug("group: %s, entries: %s", g.path, len(g.entries))

@@ -302,6 +302,7 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
                     p_d = td.get('provides', {})
                     #logger.debug(f"Checking task {t_name} for provides: {p_d}")
                     p_keys = [v['key'] for p, v in p_d.items()]
+                    logger.debug(f"Task {t_name} provides keys: {p_keys}")
                     if res in p_keys and t_name != consumer_name:
                         providers.append(t_name)
                         #logger.debug(f"Task {t_name} provides: {p_keys}")
@@ -400,12 +401,15 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
     def run_all(self):
         print("-----------------------------------------------------------")
 
-        self.render_dag()
+        #self.render_dag()
+
+        outsub = 'SUBPIPE' if self.is_subpipeline else 'MAINPIPE'
+        output = "Start run_all pl : %s " %(self.plname)
+        console.print(Text(output, style="bold blue"))
+
 
         if DEBUG:
-            outsub = 'SUBPIPE' if self.is_subpipeline else 'MAINPIPE'
-            output = "FINAL RUN ORDER: %s = %s" %(self.plname, outsub)
-
+            output = "FINAL RUN ORDER: %s = %s" % (self.plname, outsub)
             console.print(Text(output, style="bold blue"))
             # output of task run order
             for name in nx.topological_sort(self.G):
@@ -469,9 +473,13 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
         #logger.debug(f"Task {name} run flag: {run_flag}")
         #logger.debug(type(run_flag))
 
-        if run_flag == False:
+        if run_flag == 'never':
             #logger.debug(f"Skipping task {name} as run flag is False")
             print(f"__skipping task: ({name})")
+            return None
+        if run_flag == 'main_only' and self.is_subpipeline:
+            #logger.debug(f"Skipping task {name} as run flag is main_only and this is subpipeline")
+            print(f"__skipping task (main_only): ({name})")
             return None
 
 
@@ -550,8 +558,8 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
                 if node.startswith('_'):
                     continue
                 node_tree = tree.add(Text(node, style=node_style))
-                for succ in self.G.successors(node):
-                    dep = node_tree.add(Text('__'+succ, style=succ_style))
+                #for succ in self.G.successors(node):
+                    #dep = node_tree.add(Text('__'+succ, style=succ_style))
                     #node_tree.add(dep)
             console.print(tree)
         except nx.NetworkXUnfeasible:

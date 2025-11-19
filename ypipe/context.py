@@ -14,6 +14,10 @@ class Context(dict):
         if 'frame_groups' not in self:
             self['frame_groups'] = {}
 
+    def store_item(self, key, value):
+        """Speichert ein beliebiges Item im Context."""
+        self[key] = value
+
     def store_frame(self, group, df):
         """Speichert ein DataFrame unter dem gegebenen Gruppennamen."""
         self['frames'][group] = df
@@ -24,12 +28,12 @@ class Context(dict):
 
     def store_frame_group(self, frame_group_name, fg_dict):
         """Speichert eine FrameGroup (dict von DataFrames) unter dem Namen."""
-        logger.debug("Storing frame group '%s' with keys: %s", frame_group_name, fg_dict.keys())
+        logger.debug("St.FG '%s' - %s", frame_group_name, fg_dict.keys())
         self['frame_groups'][frame_group_name] = fg_dict
 
     def get_frame_group(self, frame_group_name):
         """Gibt die FrameGroup für den Namen zurück."""
-        logger.debug("Retrieving frame group '%s'", frame_group_name)
+        #logger.debug("Retrieve FG '%s'", frame_group_name)
         return self['frame_groups'].get(frame_group_name)
 
     def copy(self):

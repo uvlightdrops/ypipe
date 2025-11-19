@@ -18,60 +18,68 @@ class FrameResourceTask(LoopMixin, ResourceTask, StatsSupport):
     """ Provides a frame resource from frame cache"""
     def __init__(self, *args):
         super().__init__(*args)
+        self.fg_accumulate = True
         self.df_tmp = {}
+        self.df_tmp2 = {}
+        # new dict of tmp framegroups
+        self.df_tmp_d = {}
+
         #logger.debug("FrameResourceTask init")
         # FrameResourceTask special
         self.fc = self.context.get('fc')
         self.frame_group_name_in = self.args.get('frame_group_name_in', None)
         self.frame_group_name_out = self.args.get('frame_group_name_out', None)
         self.group = self.args.get('group', None)
-        logger.debug("%s FRT init frame_group_name_in: %s, frame_group_name_out: %s, group: %s",
-                     self.name, self.frame_group_name_in, self.frame_group_name_out, self.group)
+        #logger.debug("FRT init frame_group_name_in: %s, frame_group_name_out: %s, group: %s",
+                     #self.frame_group_name_in, self.frame_group_name_out, self.group)
 
     def run(self):
         logger.warning("FrameResourceTask OR should run subclass run()??")
 
+
+    def save_frame_to_df_tmp_d(self, df, tkey, case_name):
+        # store frame in dict of framegroups
+        #df = self.drop_cols(df)
+        #logger.debug("%s save F%s  %s %s", self.config['name'], df.shape, tkey, case_name)
+        if tkey not in self.df_tmp_d:
+            self.df_tmp_d[tkey] = {}
+        self.df_tmp_d[tkey][case_name] = df
+        #logger.debug("-- CHECK df_tmp_d keys: %s", self.df_tmp_d.keys())
     # not sure if this is useful
     def save_frame_to_tmp_d(self, df, case_name):
-        # the resulting frame should be stored as flat frame to fc
+        # tkey bestimmen
+        logger.debug('frame_group_name_out: %s', self.frame_group_name_out)
+        self.save_frame_to_df_tmp_d(df, self.frame_group_name_out, case_name)
+        return
+        df = self.drop_cols(df)
+        logger.debug("%s save fr to df_tmp, shape %s for  %s", self.config['name'], df.shape, case_name)
         self.df_tmp[case_name] = df
-        """
-        p_key = self.provide_main.get('key', None)
-        if p_key not in self.df_d:
-            self.df_d[p_key] = {}
-        self.df_d[p_key][case_name] = df
-        """
 
+    """
+    def save_frame_to_tmp2_d(self, df, case_name):
+        self.save_frame_to_df_tmp_d(df, self.args['out'][1], case_name)
+        return
+        #df = self.drop_cols(df)
+        logger.debug("saving fr to df_tmp2, shape %s for  %s", df.shape, case_name)
+        self.df_tmp2[case_name] = df
+    """
 
+    def drop_cols(self, df):
+        drop_field_l = self.fc.frame_fields.get('drop_'+self.frame_group_name_out+'_table', None)
+        #logger.debug("drop cols FG %s: %s", self.frame_group_name_out, drop_field_l)
+        if drop_field_l:
+            df = df.drop(columns=drop_field_l)
+            logger.debug("dropped cols FG %s: %s", self.frame_group_name_out, drop_field_l)
+        drop_field_cfg = self.args.get('drop_fields',  None)
+        if drop_field_cfg:
+            df = df.drop(columns=drop_field_cfg)
+            logger.debug("dropped cols FG %s from cfg: %s", self.frame_group_name_out, drop_field_cfg)
+        return df
 
-class StoreFrameResourceTask(FrameResourceTask):
-    """ Store a frame resource to frame cache"""
-    # XXX this init is new, is it needed??
-    def __init__(self, *args):
-        super().__init__(*args)
-    def run(self):
-        logger.debug("StoreFrameResourceTask storing frame resource to frame cache")
-        self.prepare()
-
-        # d.h. ganze framegroup speichern XXX rename use_frame_group_dict ??
-        frame_group_dict = self.args.get('frame_group_dict', None)
-
-        if frame_group_dict:
-            logger.debug("StoreFrameResourceTask storing full frame group %s", self.frame_group_name_out)
-            fg_d = self.context.get_frame_group(self.frame_group_name_out)
-            logger.debug('Frame group to store - keys: %s, %s', fg_d.keys(), self.name)
-            self.fc.store_frame_group(self.frame_group_name_out, fg_d)
-        else:
-            logger.debug("StoreFrameResourceTask storing simple frame in frame group %s, group %s", self.frame_group_name_out, self.group)
-            frame = self.context.get_frame(self.frame_group_name_in, self.group)
-            self.fc.store_frame(self.frame_group_name_out, self.group, frame)
-            logger.debug('provides: %s', self.provides)
-            if self.provides:
-                self.context[self.provides['main']] = frame
 
 
 class StoreFrameGroupResourceTask(FrameResourceTask):
-    """ Store a frame group resource to frame cache"""
+    # Store a frame group resource to frame cache
     def __init__(self, *args):
         super().__init__(*args)
 
@@ -84,7 +92,6 @@ class StoreFrameGroupResourceTask(FrameResourceTask):
 
         logger.debug('Frame group to store - keys: %s, %s', fg_d.keys(), frame_group_name_out)
         self.fc.store_frame_group(frame_group_name_out, fg_d)
-
 
 class LoadFrameResourceTask(FrameResourceTask):
     """ Load a frame resource into frame cache, uses reader, so should be named ReadFrameResourceFromSourceTask
@@ -109,8 +116,11 @@ class LoadFrameResourceTask(FrameResourceTask):
         reader.set_fn(fn)
         reader.init_reader()
         reader.read(fn)
+        logger.debug("LoadFrameResourceTask read %s for group %s", fn, group)
         df = reader.get_buffer(fn)
-        p_key = self.provide_main.get('key')
+        # not useful we have storageCache
+        #self.context.store_item(group, reader)
+        #logger.debug(df.tail(10))
         self.context.store_frame(group, df)
 
 
@@ -133,7 +143,6 @@ class LoadFrameGroupResourceTask(FrameResourceTask):
         fg = reader.buffer
         if fg:
             logger.debug('Loaded frame group - keys: %s, %s', fg.keys(), self.name)
-        p_key = self.provide_main.get('key')
         self.context.store_frame_group(self.frame_group_name_in, fg)
 
 
@@ -156,26 +165,6 @@ class ReadFrameResourceTask(FrameResourceTask):
         fg = self.fc.get_frame_group(self.frame_group_name_in)
         self.context[self.config['name']] = fg
         #XXX wrong
-
-
-class DebugFrameResourceTask(FrameResourceTask):
-    def run(self):
-        self.prepare()
-
-        # if no frame_group_name arg use group = corresponds to loop item
-        frame_group_name = self.args.get('frame_group_name', None) or self.group
-        logger.debug("DebugFrameGroupResourceTask frame group name %s", frame_group_name)
-        fg = self.fc.get_frame_group(frame_group_name)
-        logger.debug(frame.head(3))
-
-class DebugFrameGroupResourceTask(FrameResourceTask):
-    def run(self):
-        self.prepare()
-        logger.debug("DebugFrameGroupResourceTask frame group name %s", self.frame_group_name_in)
-        fg = self.fc.get_frame_group(self.frame_group_name_in)
-        for k, v in fg.items():
-            logger.debug("frame %s: rows %d, cols %d", k, v.shape[0], v.shape[1])
-            #logger.debug(v.head(3))
 
 
 # XXX currently gets date from context , NOT from frame cache
@@ -202,6 +191,9 @@ class WriteFrameResourceTask(FrameResourceTask):
 
 # XXX we need to dismiss the password columns here before writing to file/db
 class WriteFrameGroupResourceTask(FrameResourceTask):
+    def __init__(self, *args):
+        super().__init__(*args)
+        self.fg_accumulate = False
 
     def run(self):
         self.prepare()
@@ -211,9 +203,9 @@ class WriteFrameGroupResourceTask(FrameResourceTask):
 
         fg = self.fc.get_frame_group(frame_group_name)
 
-        logger.debug('"%s", keys to write: %s', frame_group_name, fg.keys())
         self.fc.write_frame_group(frame_group_name)
-        logger.debug("WriteFrameGroupResourceTask wrote frame group %s ", frame_group_name)
+        logger.debug("WFGRT wrote fg %s ", frame_group_name)
+        #logger.debug("WFGRT wrote fg %s keys %s", frame_group_name, fg.keys())
 
 
 class ModifyFrameResourceTask(FrameResourceTask):
@@ -248,19 +240,18 @@ class MergeFrameResourceTask(FrameResourceTask):
 
     def run(self):
         self.prepare()
-        group = self.group or self.item
+        item = self.group or self.item
 
         in_items = self.args.get('in')
-        logger.debug('Merging framegroups: %s , here group %s', in_items, group)
         in1 = in_items[0]
         in2 = in_items[1]
 
-        logger.debug('self.df_in keys: %s', self.df_in.keys())
-        df1 = self.df_in[in1][group]
-        df2 = self.df_in[in2][group]
-
-        # somehow the ent_old_tag_xx is subcatted by case_name., NOT groups_old
-        # self.business_logic()
+        # dont need to pass case_name, we have self.item
+        gid_1, gid_2 = self.business_logic(item)
+        logger.debug('Merging framegroups: %s and %s', in1, in2)
+        logger.debug('here case %s with group %s', gid_1, gid_2)
+        df1 = self.df_in[in1][gid_1]
+        df2 = self.df_in[in2][gid_2]
 
         msg = 'frame to merge is None: '
         if df1 is None:
@@ -269,19 +260,29 @@ class MergeFrameResourceTask(FrameResourceTask):
         if df2 is None:
             logger.error(msg+'F2')
             raise ValueError(msg+'F2')
-        logger.debug('len df1: %s', len(df1))
-        logger.debug('len df2: %s', len(df2))
 
-        foreign_key = 'item'
-        on = self.args.get('on', [foreign_key])
-        how = self.args.get('how', 'outer')
+        #foreign_key = 'item'
+        foreign_key = 'role_index'
+        key_on = self.args.get('key_on')
+        how = self.args.get('how')
         suffixes = self.args.get('suffixes', ('_left', '_right'))
-        logger.debug('Merging on %s, how=%s, suffixes=%s', on, how, suffixes)
-        dfm = pd.merge(df1, df2, on=on, how=how, suffixes=suffixes)
+        #logger.debug('Merging on %s, how=%s, suffixes=%s', key_on, how, suffixes)
+        # df1-wanted is left master frame and we join the entries_old from df2 into it
+        dfm = pd.merge(df1, df2, on=key_on, how=how, suffixes=suffixes)
         dfm = dfm.fillna('')
-        logger.debug('len df merged: %s', len(dfm))
-        #self.context.store_frame(self.frame_group_name_out, group, dfm)
-        self.save_frame_to_tmp_d(dfm, group)
+        #logger.debug('Merged frame has columns: %s', dfm.columns)
+        logger.debug('len df merged: %s | of %s -- %s ', len(dfm), len(df1), len(df2))
+        #self.save_frame_to_tmp_d(dfm, item)
+        self.save_frame_to_df_tmp_d(dfm, 'main', item)
+        # I need to save the non-matching rows of df2 too
+        if how in ('left', 'outer'):
+            unmatched = pd.merge(df1, df2, on=key_on, how='right', suffixes=suffixes, indicator=True)
+            unmatched = unmatched[unmatched['_merge'] == 'right_only']
+
+            #df2_notin_df1 = df2[~df2[foreign_key].isin(df1[foreign_key])]
+            logger.debug('len df2 not in df1: %s', len(unmatched))
+            self.save_frame_to_df_tmp_d(unmatched, 'non_matching', item)
+
 
 class TransformFrameResourceTask(TransformMixin, FrameResourceTask):
 

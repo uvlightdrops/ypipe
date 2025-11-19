@@ -1,5 +1,12 @@
-from pydantic import BaseModel, RootModel
+from pydantic import BaseModel, RootModel, Field
 from typing import List, Dict, Any, Optional
+from enum import Enum
+
+class RunMode(str, Enum):
+    yes = "yes"
+    never = "never"
+    main_only = "main_only"
+    sub_only = "sub_only"
 
 
 class MtaskModel(BaseModel):
@@ -9,18 +16,17 @@ class MtaskModel(BaseModel):
 
     ### Optional
     args: Dict[str, Any] = {}
-    run: bool = True
+    run: RunMode = RunMode.yes
 
 class ArgsModel(BaseModel):
+    in_: List[str] = Field(default_factory=list, alias='in')
+    out: List[str] = Field(default_factory=list)
     in1: str = ''
     in2: str = ''
-    out: str = ''
     group: str = ''
     frame_group_name: str = ''
     frame_group_name_in: str = ''
     frame_group_name_out: str = ''
-
-    #frame_group_dict: bool = False
 
 
 class ProvideItem(BaseModel):
@@ -42,19 +48,20 @@ class TaskModel(BaseModel):
 
 
     ### Optional
-    # Optional, defaults to true
-    run: bool = True
+    # Optional, defaults to yes
+    run: RunMode = RunMode.yes
+
     # (opt.) required (task)resources,
     # either in context #
-    req: List[str] = []
+    req_resources: List[str] = []
+    # (opt.) required tasks that must be run before this one
+    req_tasks: List[str] = []
 
     # (opt.) Resources provided if this tasks was run
     # these keys are the same for context and for framecache
     provides: Dict[str, ProvideItem] = {}
     #provides: Dict[str, ProvidesModel] = {}
     # if a dict of results is provided, e.g. when using loop_items
-    provided_d: List[str] = []
-    provides_dict: bool = False
 
     frame_group: str = ''
 
