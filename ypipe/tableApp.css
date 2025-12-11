@@ -18,6 +18,13 @@
     height: 2;
     background: #444;
 }
+#meta {
+    height: 100%;
+    margin: 1;
+}
+Header {
+    background: #b44;
+}
 
 EditCellDialog {
     align: center bottom;

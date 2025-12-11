@@ -90,7 +90,8 @@ class ConsoleMixin:
         if cols_prompt is None:
             cols_prompt = columns
         # Initiale Tabelle
-        table = Table(show_header=True, header_style="bold magenta")
+        table = Table(show_header=True, header_style="bold magenta",
+                      col_width=self.kp_pf.get('col_widths', {}))
         for col in columns:
             table.add_column(col)
         table.add_row(*[str(row[col]) for col in columns])
@@ -185,7 +186,8 @@ class ConsoleMixin:
                 return str(cell)[:truncate_len] + ('...' if len(str(cell)) > truncate_len else '')
             return str(cell)
 
-        app = TableApp(rows, columns, pk_idx, truncate_cell, collapsible_cols, truncate_len)
+        app = TableApp(rows, columns, pk_idx, truncate_cell, collapsible_cols,
+                       truncate_len, col_widths=self.kp_pf.get('col_widths', {}))
         app.run()
         selected_pks = [rows[i][pk_idx] for i in app.selected]
         return selected_pks

@@ -40,8 +40,9 @@ class IaMergeFrameResourceTask(ConsoleMixin, MergeFrameResourceTask):
             'group_path_new': merged['group_path_new'].iloc[0],
             'group': item,
         }
+        col_widths = kp_pf.get('col_widths', {})
         app = TableApp(merged, columns=cols, pk_col=pk_col,
-                       add_data=add_data)
+                       add_data=add_data, col_widths=col_widths)
 
         app.run()
         # Die ausgewählten Indizes stehen in app.selected
