@@ -161,7 +161,7 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
         p.config_dir = p.master_config_dir.joinpath(p.app_name)
         p.data_path = data_path
         p.plname = plname or doc.get('plname', 'included_pipeline')
-        logger.debug(f"Pipeline.from_config_doc: app_name={p.app_name}, pl_name={p.plname}")
+        #logger.debug(f"Pipeline.from_config_doc: app_name={p.app_name}, pl_name={p.plname}")
         p.sub = p.app_name
         p.phase = ''
         p.options = {}
@@ -226,11 +226,10 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
 
         # add selected context keys
         dummy_ctx = self.prepare_context()
-        logger.debug("ctx type: %s", type(dummy_ctx))
-        log_context(dummy_ctx, 'Dummy context for templating')
+        #log_context(dummy_ctx, 'Dummy context for templating')
 
         keys_l = (context_keys.get('path', set()) | context_keys.get('meta', set()))
-        logger.debug(f"adding context keys for templating: {keys_l}")
+        #logger.debug(f"adding context keys for templating: {keys_l}")
         for key in keys_l:
             if key in dummy_ctx:
                 templ_d[key] = dummy_ctx[key]
@@ -250,7 +249,7 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
 
     def register_task_def(self, t_def):
         Task.validate_config(t_def)
-        logger.debug('Registering task: %s', t_def['name'])
+        #logger.debug('Registering task: %s', t_def['name'])
         # XXX click.secho later in two colors split by underscore
         name = t_def['name']
         self.task_defs[name] = t_def
@@ -283,7 +282,9 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
         context['config_d'] = self.config_d
         # expose app_name for tasks
         context['app_name'] = self.app_name
-        logger.debug("=== prepare_context type %s for pipeline %s", type(context), self.plname)
+        context['pllvl'] = 0
+        context['color'] = 0
+        #self.pllvl = 0
         return context
 
     def build_resource_edges(self):
@@ -294,7 +295,7 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
             # check for all required resources
             for res in t_def.get('req_resources', []):
                 if res in self.forwarded_resources:
-                    logger.debug(f"Resource {res} is forwarded, skipping provider search for consumer {consumer_name}")
+                    #logger.debug(f"Resource {res} is forwarded, skipping provider search for consumer {consumer_name}")
                     continue
 
                 providers = []
@@ -302,10 +303,16 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
                     p_d = td.get('provides', {})
                     #logger.debug(f"Checking task {t_name} for provides: {p_d}")
                     p_keys = [v['key'] for p, v in p_d.items()]
-                    logger.debug(f"Task {t_name} provides keys: {p_keys}")
+                    #logger.debug(f"Task {t_name} provides : {p_keys}")
+
                     if res in p_keys and t_name != consumer_name:
+                        run_flag = td.get('run', 'yes')
+                        if (self.is_subpipeline and run_flag == 'main_only'):# or run_flag=='never':
+                            logger.debug(f"Skipping provider {t_name} for sub-pipeline consumer {consumer_name} due to run='main_only'")
+                            continue
                         providers.append(t_name)
                         #logger.debug(f"Task {t_name} provides: {p_keys}")
+
                 if not providers:
                     raise RuntimeError(f"No provider for resource '{res}' required by '{consumer_name}'")
 
@@ -399,48 +406,60 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
         """
 
     def run_all(self):
-        print("-----------------------------------------------------------")
 
         #self.render_dag()
 
-        outsub = 'SUBPIPE' if self.is_subpipeline else 'MAINPIPE'
-        output = "Start run_all pl : %s " %(self.plname)
-        console.print(Text(output, style="bold blue"))
-
-
-        if DEBUG:
-            output = "FINAL RUN ORDER: %s = %s" % (self.plname, outsub)
-            console.print(Text(output, style="bold blue"))
-            # output of task run order
-            for name in nx.topological_sort(self.G):
-                output = name
-                #logger.debug("Task to run: %s", name)
-                #logger.debug(self.task_defs[name])
-                if self.task_defs[name].get('run', True) == False:
-                    output = ' (skipped) '+name
-                print(output)
-            print()
+        """
+        # output of task run order
+        for name in nx.topological_sort(self.G):
+            output = name
+            #logger.debug("Task to run: %s", name)
+            #logger.debug(self.task_defs[name])
+            if self.task_defs[name].get('run', True) == False:
+                output = ' (skipped) '+name
+            #print(output)
+        print()
+        """
+        self.task_index = self.build_task_index()
 
         # create new context here only if this is no sub-pipeline
         if self.is_subpipeline:
-            logger.debug("===== PL is sub-pipeline, cp parent context %s", self.plname)
-            context = self._parent_ctx.copy()
-            log_context(self._parent_ctx, "Sub-pipeline initial context from parent")
+            # was copied in IPP
+            #context = self._parent_ctx.copy()
+            context = self.context
             #log_context(context, "Sub-pipeline initial context from parent")
         else:
-            logger.debug("===== PL is main pl %s, call prepare_context. OK?", self.plname)
+            logger.debug("===== PL is main pl %s, call prepare_context.", self.plname)
             context = self.prepare_context()
 
-        log_context(context, "Initial context before pipeline run")
+        # NOT ANYMORE - when sub is finished, the parent pipeline will use its own color again
+        con_colors = ['blue', 'cyan', 'green', 'yellow', 'red', 'magenta']
+        outsub = 'SUB' if self.is_subpipeline else 'MAIN'
+        pllvl = context.get_item('pllvl')
+        color = context.get_item('color')
+        color = con_colors[color % len(con_colors)]
+
+        # , Lenght=%s"
+        #output = ("%s START" + (20-len(self.plname))*" " + "-- (%s)level=%s"
+        #       % (self.plname.upper(), outsub, pllvl)) #, len(self.task_defs)))
+        fstr = f"->{self.plname.upper():<20}{'    '*pllvl} Level {pllvl:<2} " #  ({outsub:<4})"
+        self.style = "bold " + color
+        #print()
+        console.print(Text(fstr, style=self.style))
+
+        logger.debug("= PL %s", fstr)
+
+        #log_context(context, "Initial context before pipeline run")
         # keep runtime context available after run for callers who need to sync state
 
         for name in nx.topological_sort(self.G):
             #logger.debug(" 'run_all' calls _run_task %s", name)
             ### RUN the innner task method, returns None usually
-            log_context(context, f"Before calling _run_task {name}")
+            #log_context(context, f"Before calling _run_task {name}")
             last_task = self._run_task(name, context)
             #logger.debug(">>> run_all: last_task=%s", last_task)
 
+        console.print(Text(f"  {self.plname:<20}{'    '*pllvl} END", style=self.style))
         return context
 
 
@@ -462,29 +481,31 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
     def _run_task(self, name, context) -> Task | None:
 
         task_def = self.task_defs[name]
+        #logger.debug('--- NEXT %s, action: %s', name, task_def['action'])
 
-        logger.debug('---------------- NEXT task %s, action: %s', name, task_def['action'])
-
-        #log_context(context, 'In _run_task before call create_task: '+name)
         task = self.create_task(task_def, context)
-        log_context(context, 'In _run_task after call create_task: '+name)
         run_flag = self.task_defs[name].get('run')
         skip_task = False
-        #logger.debug(f"Task {name} run flag: {run_flag}")
-        #logger.debug(type(run_flag))
+        out_task = None
+        out_skip = None
 
-        if run_flag == 'never':
-            #logger.debug(f"Skipping task {name} as run flag is False")
-            print(f"__skipping task: ({name})")
-            return None
+        idx = self.task_index.get(name, -1) +1
+        pllvl = context.get_item('pllvl')
+
+        out_plname = Text(f"  {self.plname}{'.' * (18 - len(self.plname))}")
+        out_idx = Text(f"  {'    '*pllvl}[#{idx}]", style=self.style)
+
+        self.skipped_tasks = []
+        if run_flag in ['never']:
+            #logger.debug(f"Skipping task {name} as run flag is set to never")
+            out_skip = Text(f"__skipping__ {name} (run=never)")
+            skip_task = True
         if run_flag == 'main_only' and self.is_subpipeline:
             #logger.debug(f"Skipping task {name} as run flag is main_only and this is subpipeline")
-            print(f"__skipping task (main_only): ({name})")
-            return None
-
+            out_skip = Text(f"__skipping task (main_only): ({name})")
+            skip_task = True
 
         loop_items = self.task_defs[name].get('loop_items', None)
-        #logger.debug(f"Task {name} loop_items: {loop_items}")
 
         # runtime check if all required resources are in context
         requires = task_def.get('req_resources', [])
@@ -501,16 +522,21 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
                     break
                 raise RuntimeError(f"Task {name} requires '{req}' but it does not exist in context!")
             else:
-                logger.debug('Task %s got required %s from context', name, req)
+                #logger.debug('Task %s got required %s from context', name, req)
+                pass
 
-        log_context(context, 'In _run_task after req check: '+name)
         if skip_task:
+            self.skipped_tasks.append(name)
             return None
 
-        #log_context(context, 'Before: '+name)
-        console.print(Text(f"Running task: {name}", style="bold green"))
-        #logger.debug(f"Start {name} - {task.__class__}")
-        #logger.debug(f"loop_items: {loop_items}")
+        out_task = Text(f"{name}")
+
+        if out_skip and False:
+            out_task = out_skip
+
+        content = Text.assemble(out_plname, out_idx, out_task)
+        console.print(content)
+
         if loop_items:
             task.run_with_loop()
         else:
@@ -564,3 +590,14 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
             console.print(tree)
         except nx.NetworkXUnfeasible:
             raise RuntimeError("Zyklische Abhängigkeit entdeckt!")
+
+    def build_task_index(self):
+        """
+        Baut ein Dict, das jedem Tasknamen die Reihenfolgen-Nummer im Pipeline-Graph zuordnet.
+        Gibt das Dict zurück: {taskname: index}
+        """
+        task_index = {}
+        for idx, task_name in enumerate(self.G.nodes):
+            task_index[task_name] = idx
+        return task_index
+

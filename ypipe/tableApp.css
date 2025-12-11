@@ -1,0 +1,64 @@
+# tableApp.css
+# Trennung und Layout für TableApp
+
+#upper {
+    /*
+    */
+    height: 80%;
+    border-bottom: solid #444;
+    margin-bottom: 1;
+}
+#lower {
+    /*
+    */
+    height: 20%;
+    margin-top: 1;
+}
+#separator {
+    height: 2;
+    background: #444;
+}
+
+EditCellDialog {
+    align: center bottom;
+}
+/*
+*/
+#edit_cell_dialog {
+    border: solid #444;
+    padding: 10;
+    height: auto;
+    min-width: 60%;
+    max-width: 80%;
+    margin: 1;
+    background: #222;
+}
+QuitScreen {
+    align: center middle;
+}
+
+#question {
+    content-align: center bottom;
+    column_span: 3;
+}
+#dialog {
+    grid-size: 3;
+    grid-gutter: 1 2;
+    grid-rows: 1fr 1fr 3;
+    padding: 0 1;
+    width: 80;
+    height: 15;
+    border: thick $background 80%;
+    background: $surface;
+}
+
+#cell_input {
+    column-span: 3;
+    height: 1fr;
+    width: 1fr;
+    content-align: center middle;
+}
+
+Button {
+    width: 100%;
+}

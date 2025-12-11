@@ -116,7 +116,7 @@ class ModifyStorageResourceTask(StorageResourceTask):
 
         #logger.debug(self.resource.groups)
         self.context[self.provides['main']['key']] = self.resource
-        print(self.context[backup[0]] == self.resource)
+        #print(self.context[backup[0]] == self.resource)
 
 
 class WriteStorageResourceTask(StorageResourceTask):

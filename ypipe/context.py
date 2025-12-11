@@ -14,7 +14,12 @@ class Context(dict):
         if 'frame_groups' not in self:
             self['frame_groups'] = {}
 
+    def get_item(self, key):
+        """Gibt ein beliebiges Item aus dem Context zurück."""
+        return self.get(key)
+
     def store_item(self, key, value):
+        logger.debug("Storing item '%s' in context", key)
         """Speichert ein beliebiges Item im Context."""
         self[key] = value
 

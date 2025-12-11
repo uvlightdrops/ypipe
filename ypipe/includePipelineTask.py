@@ -24,6 +24,7 @@ class IncludePipelineTask(Task):
 
     def __init__(self, name: str = "include_pipeline", config: dict = None, context: 'Context' = None):
         super().__init__(name, config, context)
+        self.fc = self.context['fc']
 
     def run(self):
         logger.debug('')
@@ -73,9 +74,16 @@ class IncludePipelineTask(Task):
                             parent_components=parent_components)
 
         sub_pipeline._parent_ctx = self.context
+        pllvl_new = self.context['pllvl'] + 1
+        color = self.context['color'] + 1
+        #sub_pipeline.pllvl = pllvl_new
 
         sub_pipeline.context = self.context.copy()
-
+        #sub_pipeline.context.store_item('pllvl', pllvl_new)
+        sub_pipeline.context['pllvl'] = pllvl_new
+        sub_pipeline.context['color'] = color
+        logger.debug(f'sub pllvl is {pllvl_new}')
+        #logger.debug('self.context[pllvl]: %s', self.context['pllvl'])
         # register/render tasks and run using Pipeline API
         # templ_ctx = sub_pipeline.prepare_context()
         #parent_view = self.context.copy()
@@ -91,7 +99,7 @@ class IncludePipelineTask(Task):
         try:
             ### Run all tasks in the sub-pipeline
             result_context = sub_pipeline.run_all()
-
+            ###
         except Exception as e:
             logger.exception(f"Exception in sub-pipeline {sub_plname}: {e}")
             print(f"Exception in sub-pipeline {sub_plname}: {e}")
@@ -100,23 +108,32 @@ class IncludePipelineTask(Task):
 
         if result_context is not None:
             logger.debug(f'subpipe {sub_plname} run_all() returned context')
-            log_context(result_context, 'IPP --------------- result_context')
+            log_context(result_context, self.name+' IPP ---- result_context')
         else:
             logger.error("IncludePP sub-pipeline run_all() returned %s as context", result_context)
             raise ValueError
         # last task of the pipeline has current context
 
-        # nur erlaubte Keys übernehmen, z.B. kp_src, kp_dst, oder ein whitelist var
 
+
+        # nur erlaubte Keys übernehmen, z.B. kp_src, kp_dst, oder ein whitelist var
         ctx_key_whitelist = ['kp_src', 'kp_dst']
-        add = self.context['fc'].tkeys_all
+        add = self.fc.tkeys_all
+        #logger.debug(f'IncludePP adding fc.tkeys_all %s', self.fc.tkeys_all)
         #logger.debug(f'IncludePP adding fc.tkeys_all to context whitelist: {add}')
 
         ctx_key_whitelist += add  #, 'merged', 'entries_old', 'entries_old_tagged']
+        copied = []
         for k in ctx_key_whitelist:
             if k in result_context:
-                logger.debug(f'IncludePP copying context key: {k}')
+                copied.append(k)
                 self.context[k] = result_context[k]
 
+        # step one level down in pllvl hierarchy
+        self.context['pllvl'] = result_context['pllvl'] -1
+        self.context['color'] = result_context['color']
+        logger.debug(f'IncludePP copied ctx keys: {copied}')
+        logger.debug('ctx pllvl: %s', self.context['pllvl'])
+
         logger.info("--- Included pipeline completed")
-        log_context(self.context, 'IncludePP sub-pipeline after run')
+        #log_context(self.context, 'IncludePP sub-pipeline after run')

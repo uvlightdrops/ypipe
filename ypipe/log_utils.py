@@ -37,12 +37,15 @@ def log_context(context, msg, show_subkeys=False):
     logger.debug('----------- %s ==== %s', type(context), msg.strip())
     for k in context.keys():
         if k not in keys_hide:
-            logger.debug('%s:      %s', k, type(context[k]))
-            if type(context[k]) == type({}) and show_subkeys:
-                logger.debug('     keys: %s', context[k].keys())
-    for item in ['frames', 'frame_groups']:
-        logger.debug(' %s keys: %s', item, context[item].keys())
-    logger.debug('loop item: %s', context.get('loop_item', None))
+            if type(context[k] == int or type(context[k]) == str):
+                logger.debug('%s:  %s %s', k, type(context[k]), context[k])
+            elif type(context[k]) == type({}) and show_subkeys:
+                logger.debug(' %s   keys: %s', k, context[k].keys())
+            else:
+                logger.debug('%s:  %s', k, type(context[k]))
+    #for item in ['frames', 'frame_groups']:
+    #    logger.debug(' %s keys: %s', item, context[item].keys())
+    #logger.debug('loop item: %s', context.get('loop_item', None))
 
     if not isinstance(context, Context):
         raise TypeError("context must be a Context instance, not dict")

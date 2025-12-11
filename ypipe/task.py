@@ -108,7 +108,7 @@ class EchoTask(LoopMixin, Task):
 
 class DebugContextTask(Task):
     def run(self):
-        log_context(self.context, f"DebugContextTask {self.name}")
+        #log_context(self.context, f"DebugContextTask {self.name}")
         logger.debug("DebugContextTask context keys: %s", self.context.keys())
         #for k, v in self.context.items():
         #    logger.debug("  %s: %s", k, v)

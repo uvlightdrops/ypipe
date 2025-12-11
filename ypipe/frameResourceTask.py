@@ -201,13 +201,14 @@ class WriteFrameGroupResourceTask(FrameResourceTask):
         # this seems a fine solution
         frame_group_name = self.frame_group_name_out or self.item
 
-        fg = self.fc.get_frame_group(frame_group_name)
+        #fg = self.fc.get_frame_group(frame_group_name)
 
         self.fc.write_frame_group(frame_group_name)
         logger.debug("WFGRT wrote fg %s ", frame_group_name)
         #logger.debug("WFGRT wrote fg %s keys %s", frame_group_name, fg.keys())
 
-
+# this class is meant to edit a frame by looping the rows and applying
+# some update logic
 class ModifyFrameResourceTask(FrameResourceTask):
 
     def run(self):
@@ -237,21 +238,17 @@ class MergeFrameResourceTask(FrameResourceTask):
 
     def __init__(self, *args):
         super().__init__(*args)
+        self.load_on_init()
 
-    def run(self):
-        self.prepare()
-        item = self.group or self.item
+    def load_on_init(self):
+        self.in_l = self.args.get('in')
+        self.in1 = self.in_l[0]
+        self.in2 = self.in_l[1]
 
-        in_items = self.args.get('in')
-        in1 = in_items[0]
-        in2 = in_items[1]
-
-        # dont need to pass case_name, we have self.item
-        gid_1, gid_2 = self.business_logic(item)
-        logger.debug('Merging framegroups: %s and %s', in1, in2)
-        logger.debug('here case %s with group %s', gid_1, gid_2)
-        df1 = self.df_in[in1][gid_1]
-        df2 = self.df_in[in2][gid_2]
+    def prepare_input(self):
+        gid_1, gid_2 = self.business_logic(self.item)
+        df1 = self.df_in[self.in1][gid_1]
+        df2 = self.df_in[self.in2][gid_2]
 
         msg = 'frame to merge is None: '
         if df1 is None:
@@ -260,18 +257,35 @@ class MergeFrameResourceTask(FrameResourceTask):
         if df2 is None:
             logger.error(msg+'F2')
             raise ValueError(msg+'F2')
+        self.df1 = df1
+        self.df2 = df2
+        self.key_on = self.args.get('key_on')
+        logger.debug('unique %s in df1: %s', self.key_on, self.df1['role_index'].nunique())
+        logger.debug('unique %s in df2: %s', self.key_on, self.df2['role_index'].nunique())
+        logger.debug('value counts df1 %s: %s', self.key_on, self.df1[self.key_on].value_counts())
+        logger.debug('value counts df2 %s: %s', self.key_on, self.df2[self.key_on].value_counts())
 
-        #foreign_key = 'item'
+
+    def merge(self):
         foreign_key = 'role_index'
-        key_on = self.args.get('key_on')
         how = self.args.get('how')
         suffixes = self.args.get('suffixes', ('_left', '_right'))
         #logger.debug('Merging on %s, how=%s, suffixes=%s', key_on, how, suffixes)
         # df1-wanted is left master frame and we join the entries_old from df2 into it
-        dfm = pd.merge(df1, df2, on=key_on, how=how, suffixes=suffixes)
-        dfm = dfm.fillna('')
-        #logger.debug('Merged frame has columns: %s', dfm.columns)
-        logger.debug('len df merged: %s | of %s -- %s ', len(dfm), len(df1), len(df2))
+        dfm = pd.merge(self.df1, self.df2, on=self.key_on, how=how, suffixes=suffixes)
+        logger.debug('len df merged: %s  |  df1 %s -- df2 %s ', len(dfm), len(self.df1), len(self.df2))
+        logger.debug('Merged frame has columns: %s', dfm.columns)
+        return dfm.fillna('')
+
+    def run(self):
+        self.prepare()
+        item = self.group or self.item
+        logger.debug('MergeFrameResourceTask load_on_init for item %s', self.item)
+
+        logger.debug('here case %s with group %s', gid_1, gid_2)
+
+        dfm = self.merge()
+
         #self.save_frame_to_tmp_d(dfm, item)
         self.save_frame_to_df_tmp_d(dfm, 'main', item)
         # I need to save the non-matching rows of df2 too
