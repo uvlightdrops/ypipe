@@ -19,6 +19,9 @@ class ConsoleMixin:
         if 'quiet' in kwargs:
             self.quiet = kwargs['quiet']
         self.quiet = True # DEV
+        self.kp_pf = self.context['config_d']['kp_process_fields']
+        self.col_widths = self.kp_pf.get('col_widths', {})
+        self.col_widths_max = self.kp_pf.get('col_widths_max', {})
 
     def print(self, msg, style=None):
         self.console.print(msg, style=style)
@@ -74,13 +77,10 @@ class ConsoleMixin:
         logger.debug('ia keyword update cols L=%s not to dismiss: %s', len(columns), columns)
         add_data = {'task': self.name}
 
-        col_widths = self.kp_pf.get('col_widths', {})
-        col_widths_max = self.kp_pf.get('col_widths_max', {})
-
         canonical_data=self.context.get('config_d').get('kp_age')
         app = TableAppAllRows(df, columns=columns, pk_col=None,
-                      add_data=add_data, col_widths=col_widths,
-                      col_widths_max=col_widths_max, canonical_data=canonical_data)
+                      add_data=add_data, col_widths=self.col_widths,
+                      col_widths_max=self.col_widths_max, canonical_data=canonical_data)
 
         app.run()
 
@@ -99,7 +99,7 @@ class ConsoleMixin:
             cols_prompt = columns
         # Initiale Tabelle
         table = Table(show_header=True, header_style="bold magenta",
-                      col_width=self.kp_pf.get('col_widths', {}))
+                      col_widths=self.col_widths, col_widths_max=self.col_widths_max)
         for col in columns:
             table.add_column(col)
         table.add_row(*[str(row[col]) for col in columns])
@@ -195,7 +195,7 @@ class ConsoleMixin:
             return str(cell)
 
         app = TableApp(rows, columns, pk_idx, truncate_cell, collapsible_cols,
-                       truncate_len, col_widths=self.kp_pf.get('col_widths', {}))
+                       truncate_len, col_widths=self.col_widths, col_widths_max=self.col_widths_max)
         app.run()
         selected_pks = [rows[i][pk_idx] for i in app.selected]
         return selected_pks

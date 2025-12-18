@@ -123,10 +123,11 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
         # YamlConfigSupport
         #self.cfg_kp_si = self.load_config('kp_si.yml')
 
-        if not self.config_dir.joinpath(self.plname + '.yml').exists():
+        phase_subdir = 'yp'
+        if not self.config_dir.joinpath(phase_subdir, self.plname + '.yml').exists():
             raise RuntimeError(f"Pipeline init: config file {self.plname + '.yml'} not found in {self.config_dir}!")
 
-        self.config = self.load_config(self.plname + '.yml')
+        self.config = self.load_config(self.plname + '.yml', phase_subdir='yp')
 
     # --- Kleine Pipeline-Factory-Methoden für Sub-Pipelines (vermeiden Duplikate) ---
     @classmethod

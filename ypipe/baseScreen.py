@@ -63,7 +63,7 @@ class BaseTableScreen(BaseScreen):
             if event.key in ["up", "down"]:
                 if hasattr(self, "update_current_line"):
                     self.call_later(self.update_current_line)
-            if hasattr(self, "update_input_field"):
+            if hasattr(self, "inp_widget"):
                 self.call_later(self.update_input_field)
             event.stop()
             return

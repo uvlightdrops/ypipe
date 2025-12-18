@@ -34,7 +34,7 @@ class IncludePipelineTask(Task):
             logger.error("IncludePipelineTask needs 'include' arg")
             return False
 
-        include_path = self.context['config_dir'].joinpath(include).with_suffix('.yml')
+        include_path = self.context['config_dir'].joinpath('yp', include).with_suffix('.yml')
         logger.debug("=== ---------------   IPT loading: %s", include)
         # resolve include path and load YAML (reuse Pipeline.from_config_file if convenient)
         try:

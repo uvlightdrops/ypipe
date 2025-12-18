@@ -20,32 +20,44 @@ from .baseScreen import BaseScreen, BaseTableScreen
 logger = setup_logger(__name__, __name__+'.log')
 
 
-class TableApp(BaseTableScreen, iaBase):
+class TableAppBase(BaseTableScreen):
     CSS_PATH = "tableApp.css"
+
+    def __init__(self, df, columns=None, pk_col=None, collapsible_cols=None, truncate_len=10, *args, **kwargs):
+        logger.debug("init TableApp with kwargs %s", kwargs)
+        for kw in ['col_widths', 'col_widths_max', 'add_data', 'canonical_data']:
+            if kw in kwargs:
+                logger.debug("Setting attribute %s from kwargs", kw)
+                setattr(self, kw, kwargs.pop(kw))
+            else:
+                logger.debug("Attribute %s not in kwargs, setting default", kw)
+        self.kwargs = kwargs
+        self.df = df
+        self.columns = columns if columns is not None else list(df.columns)
+        self.pk_col = pk_col # if pk_col is not None else self.columns[0]
+        self.collapsible_cols = collapsible_cols
+        self.truncate_len = truncate_len
+        logger.debug("TableApp initialized with columns: %s", self.columns)
+        # we dont have another custom base class, this inits the textual App class
+        super().__init__(*args, **kwargs)
+        #super().__init__()
+
+
+class TableApp(TableAppBase, iaBase):
     BINDINGS = [
         ("space", "toggle_checkbox", "Toggle Checkbox"),
         ("e", "toggle_expand", "Expand/Collapse Columns"),
         ("enter", "confirm", "Bestätigen")
     ]
     def __init__(self, df, columns=None, pk_col=None, collapsible_cols=None, truncate_len=10, *args, **kwargs):
-        logger.debug("init TableApp with kwargs %s", kwargs)
-        for kw in ['col_widths', 'add_data']:
-            if kw in kwargs:
-                logger.debug("Setting attribute %s from kwargs", kw)
-                setattr(self, kw, kwargs.pop(kw))
-
-        self.kwargs = kwargs
-        self.df = df
-        self.columns = columns if columns is not None else list(df.columns)
-        logger.debug("TableApp initialized with columns: %s", self.columns)
-        self.pk_col = pk_col # if pk_col is not None else self.columns[0]
-        self.collapsible_cols = collapsible_cols
-        self.truncate_len = truncate_len
         self.expanded_cols = set()
         self.prompt_text = "Zuordn.OK? (Space/Enter/other)?"
         self.role_index_list = []
         self.selected = set()
-        super().__init__(*args, **kwargs)
+        # XXX remove truncate_len, we never need?
+        logger.debug('kwargs in TableApp: %s', kwargs)
+        super().__init__(df, columns=columns, pk_col=pk_col, collapsible_cols=collapsible_cols,
+                         truncate_len=truncate_len, *args, **kwargs)
 
     def build_main(self):
         return self.compose_main()
@@ -167,26 +179,16 @@ class TableApp(BaseTableScreen, iaBase):
 
 #from textual import on
 
-class TableAppAllRows(BaseTableScreen, iaBase):
-    CSS_PATH = "tableApp.css"
+class TableAppAllRows(TableAppBase, iaBase):
     BINDINGS = [("q", "request_quit", "Quit")]
 
     def __init__(self, df, columns=None, pk_col=None, collapsible_cols=None, truncate_len=10, *args, **kwargs):
-        for kw in ['col_widths', 'col_widths_max', 'add_data', 'canonical_data']:
-            if kw in kwargs:
-                #logger.debug("Setting attribute %s from kwargs", kw)
-                setattr(self, kw, kwargs.pop(kw))
-
-        self.kwargs = kwargs
-        self.df = df
-        self.columns = columns if columns is not None else list(df.columns)
-        self.pk_col = pk_col
-        self.collapsible_cols = collapsible_cols
-        self.truncate_len = truncate_len
         self.selected = set(range(len(df)))
+        super().__init__(df, columns=columns, pk_col=pk_col, collapsible_cols=collapsible_cols,
+                         truncate_len=truncate_len, *args, **kwargs)
+
         output = "\n".join( [f"{k}: {v}" for k, v in self.add_data.items()] )
         self.footer_text = "c: Edit Cell | l: Edit Inline | Enter: Edit Current Line | q: Quit || "+output
-        super().__init__(*args, **kwargs)
 
 
     def build_main(self):

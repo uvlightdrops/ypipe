@@ -28,10 +28,9 @@ class IaMergeFrameResourceTask(ConsoleMixin, MergeFrameResourceTask):
 
         merged = self.merge()
 
-        kp_pf = self.context.get('config_d').get('kp_process_fields')
         cols = self.fc.frame_fields.get('ia_merge_table')
         # remove all dismiss_fields
-        cols = [col for col in cols if col not in kp_pf['dismiss_fields']]
+        cols = [col for col in cols if col not in self.kp_pf['dismiss_fields']]
 
         logger.debug('ia merge cols: %s', cols)
         pk_col = 'role_index'
@@ -40,9 +39,8 @@ class IaMergeFrameResourceTask(ConsoleMixin, MergeFrameResourceTask):
             'group_path_new': merged['group_path_new'].iloc[0],
             'group': item,
         }
-        col_widths = kp_pf.get('col_widths', {})
         app = TableApp(merged, columns=cols, pk_col=pk_col,
-                       add_data=add_data, col_widths=col_widths)
+                       add_data=add_data, col_widths=self.col_widths, col_widths_max=self.col_widths_max,)
 
         app.run()
         # Die ausgewählten Indizes stehen in app.selected
