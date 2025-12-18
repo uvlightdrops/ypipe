@@ -17,7 +17,7 @@ class BaseScreen(App):
         # Platzhalter für den Hauptinhalt, von Subklassen zu überschreiben
         return None
 
-    def on_key(self, event):
+    async def on_key(self, event):
         # Standard-Key-Handling für Navigation und App-Exit
         if event.key == "escape":
             if hasattr(self, "action_request_quit"):
@@ -25,6 +25,7 @@ class BaseScreen(App):
             event.stop()
         else:
             pass
+        return
 
 
 class BaseTableScreen(BaseScreen):
@@ -41,12 +42,32 @@ class BaseTableScreen(BaseScreen):
                 self.exit()
         self.push_screen(QuitScreen(), check_quit)
 
-    def on_key(self, event):
+    def action_toggle_expand(self):
+        dt = self.main_table
+        for col_idx, col in enumerate(self.columns):
+            if self.collapsible_cols and col in self.collapsible_cols:
+                for row_idx, row in self.df.iterrows():
+                    if col in self.expanded_cols:
+                        dt.update_cell(row_idx, col_idx+1, self.truncate_cell(row[col], col))
+                    else:
+                        dt.update_cell(row_idx, col_idx+1, str(row[col]))
+                if col in self.expanded_cols:
+                    self.expanded_cols.remove(col)
+                else:
+                    self.expanded_cols.add(col)
+        self.main_table.refresh()
+
+    async def on_key(self, event):
         if event.key in ["up", "down", "left", "right"]:
+            await super().on_key(event)  # Erst das Framework bewegen lassen!
+            if event.key in ["up", "down"]:
+                if hasattr(self, "update_current_line"):
+                    self.call_later(self.update_current_line)
+            if hasattr(self, "update_input_field"):
+                self.call_later(self.update_input_field)
             event.stop()
-            if hasattr(self, "update_current_line"):
-                self.update_current_line()
-        if event.key == "space":
+            return
+        elif event.key == "space":
             self.toggle_checkbox()
             event.stop()
         elif event.key == "e":
@@ -56,4 +77,4 @@ class BaseTableScreen(BaseScreen):
             self.action_confirm()
             event.stop()
         else:
-            super().on_key(event)
+            await super().on_key(event)

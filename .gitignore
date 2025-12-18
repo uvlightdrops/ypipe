@@ -29,6 +29,9 @@ log/
 *.iml
 pythonProject/
 .idea/
+# copilot
+plan-*
+
 # python setup
 uv.lock
 *.egg-info

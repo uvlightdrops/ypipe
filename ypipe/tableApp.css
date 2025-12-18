@@ -4,14 +4,14 @@
 #upper {
     /*
     */
-    height: 80%;
+    height: 70%;
     border-bottom: solid #444;
     margin-bottom: 1;
 }
 #lower {
     /*
     */
-    height: 20%;
+    height: 30%;
     margin-top: 1;
 }
 #separator {
@@ -67,5 +67,24 @@ QuitScreen {
 }
 
 Button {
+/*
     width: 100%;
+*/
+    height: 1;
+}
+OptionList {
+    width: auto;
+}
+#inputcont {
+    height: auto;
+    width: 40;
+    margin: 1;
+}
+#presetbuttons {
+    height: auto;
+    width: auto;
+    margin: 1;
+    content-align: center middle;
+    grid-size: 2;
+    grid-gutter: 1 2;
 }

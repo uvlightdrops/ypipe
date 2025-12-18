@@ -75,13 +75,21 @@ class ConsoleMixin:
         add_data = {'task': self.name}
 
         col_widths = self.kp_pf.get('col_widths', {})
+        col_widths_max = self.kp_pf.get('col_widths_max', {})
 
+        canonical_data=self.context.get('config_d').get('kp_age')
         app = TableAppAllRows(df, columns=columns, pk_col=None,
-                              add_data=add_data, col_widths=col_widths)
+                      add_data=add_data, col_widths=col_widths,
+                      col_widths_max=col_widths_max, canonical_data=canonical_data)
+
         app.run()
 
-        confirmed_rows = [df.iloc[idx] for idx in app.selected]
-        df_confirmed = pd.DataFrame(confirmed_rows)
+        #confirmed_rows = [df.iloc[idx] for idx in app.selected]
+        #df_confirmed = pd.DataFrame(confirmed_rows)
+        df_confirmed = app.result
+        debugfields = ['stat', 'info', 'pk', 'sig_item', 'sig_app', 'sig_behd', 'sig_crit']
+        logger.debug(df_confirmed.head())
+        #logger.debug(df_confirmed[debugfields].head())
         return df_confirmed
 
 

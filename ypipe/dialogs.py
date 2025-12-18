@@ -1,4 +1,4 @@
-from textual.widgets import Button, Label
+from textual.widgets import Button, Label, Input, Select
 from textual.containers import Grid
 from textual.screen import ModalScreen
 from textual.app import ComposeResult
@@ -51,6 +51,41 @@ class EditCellDialog(ModalScreen):
         if event.key == "enter":
             value = self.query_one("#cell_input", Input).value
             self.dismiss(value)
+            event.stop()
         elif event.key == "escape":
             self.dismiss(None)
-# ...existing code...
+            event.stop()
+
+
+class SelectCellDialog(ModalScreen):
+    def __init__(self, options, *args, **kwargs):
+        super().__init__()
+        for kw in ['row_idx', 'col_key', 'current_value', 'row', 'col_name']:
+            if kw in kwargs:
+                setattr(self, kw, kwargs.pop(kw))
+        self.options = options
+
+    def compose(self):
+        yield Grid(
+            Label(f"Wähle Wert für Feld {self.col_name} (Title='{self.row['title']}'):", id="question"),
+            Select(options=[(str(opt), str(opt)) for opt in self.options], id="cell_select", value=str(self.current_value)),
+            Button("Save", variant="success", id="ok"),
+            Button("Cancel", variant="primary", id="cancel"),
+            id="dialog",
+        )
+
+    def on_button_pressed(self, event):
+        if event.button.id == "cancel":
+            self.dismiss(None)
+        if event.button.id == "ok":
+            value = self.query_one("#cell_select", Select).value
+            self.dismiss(value)
+
+    def on_key(self, event):
+        if event.key == "enter":
+            value = self.query_one("#cell_select", Select).value
+            self.dismiss(value)
+            event.stop()
+        elif event.key == "escape":
+            self.dismiss(None)
+            event.stop()
