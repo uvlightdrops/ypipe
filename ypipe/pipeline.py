@@ -55,7 +55,7 @@ class KpctrlBusinessLogic:
             logger.debug('Skipping additional_yaml_config_logic because app_type != tree')
             return
         # groups with own wanted_logic cfg file
-        yml_list = self.config_dir.glob('group_logic_*.yml')
+        yml_list = self.config_dir.glob('groups/group_logic_*.yml')
         done = []
         for fn in yml_list:
             group_case_name = fn.stem[12:]

@@ -6,6 +6,21 @@ from flowpy.utils import setup_logger
 logger = setup_logger(__name__, __name__+'.log')
 
 
+class YpipeScreen(App):
+    """Basis-Screen für ypipe-Anwendungen mit Standard-Header, Footer und generischem on_key-Handler."""
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield self.build_main()
+        yield Footer()
+
+    def build_main(self):
+        # Platzhalter für den Hauptinhalt, von Subklassen zu überschreiben
+        return self.compose_main()
+
+    def compose_main(self):
+        pass
+
+
 class BaseScreen(App):
     """Basis-Screen mit Standard-Header, Footer und generischem on_key-Handler."""
     def compose(self) -> ComposeResult:
