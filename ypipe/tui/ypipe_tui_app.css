@@ -1,10 +1,16 @@
 /* ypipe_tui_app.css - Beispiel-Styles für Label, TaskView, ControlPanel und DataFrameView */
 
+Vertical {
+    background: #181840;
+}
+
+Static {
+    background: #222244;
+}
 Label {
     color: yellow;
     background: #222244;
-    border: round #8888ff;
-    padding: 0 1;
+    padding: 1 2;
 }
 
 TaskView {
@@ -20,36 +26,46 @@ ListView {
 ListItem {
     width: 100%;
     background: #222222;
-    padding: 0 1;
+    padding: 0 0;
     color: #00ccff;
 }
 
 .ControlPanel {
-    background: #2a2a2a;
+    background: #4a2a2a;
     color: #ffcc00;
     content-align: center middle;
+    width: 40%;
+}
    /*
     padding: 1 2;
+    border: round #8888ff;
 */
-    width: 20%;
-}
 
+.SPanel {
+    height: 12;
+    width: 100%;
+}
 .CPanel {
-    height: 4;
+    height: 6;
     border: round #00ccff;
+}
+/*
     content-align: center middle;
-}
+*/
 Button {
-    content-align: center middle;}
-
-
-Vertical {
-    background: #181818;
+    content-align: center middle;
+    background: #444466;
+    margin: 1 1;
+    border: round #8888ff;
+    width: 12;
+}
+#btn_start {
+    background: green;
+}
+#btn_stop {
+    background: red;
 }
 
-Static {
-    background: #222244;
-}
 DataFrameView {
     background: #1a1a1a;
     color: #00ff66;

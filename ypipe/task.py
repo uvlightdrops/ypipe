@@ -87,12 +87,13 @@ class Task: #(YamlConfigSupport):
         return None
 
 
-
+"""
 class StopTask(Task):
     def run(self):
         logger.info(f"StopTask {self.name} reached, stopping pipeline")
         #raise Exception("StopTask reached, stopping pipeline")
         sys.exit()
+"""
 
 class NoopTask(LoopMixin, Task):
     def run(self):

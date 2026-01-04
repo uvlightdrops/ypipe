@@ -9,6 +9,8 @@ class TaskView(Static):
         self.update_content()
 
     def update_content(self):
-        # YAML-Darstellung für das gesamte task_def-Dictionary
-        pretty = yaml.dump(self.task_def, allow_unicode=True, sort_keys=False, indent=2)
+        # Nur ausgewählte Keys anzeigen
+        keys = ["name", "action", "args", "provides", "req_resources"]
+        filtered = {k: self.task_def.get(k) for k in keys if k in self.task_def}
+        pretty = yaml.dump(filtered, allow_unicode=True, sort_keys=False, indent=2)
         self.update(pretty)

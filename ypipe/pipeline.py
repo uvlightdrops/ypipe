@@ -128,6 +128,42 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
             raise RuntimeError(f"Pipeline init: config file {self.plname + '.yml'} not found in {self.config_dir}!")
 
         self.config = self.load_config(self.plname + '.yml', phase_subdir='yp')
+        self._status_callbacks = []
+        self.style = ""
+
+        # Pipeline-Status
+        self.status = "initialized"  # Pipeline-Status
+        self._pipeline_status_callbacks = []  # Liste der Pipeline-Status-Callbacks
+
+    def register_status_callback(self, callback):
+        """Registriere eine Callback-Funktion, die bei Statusänderungen von Tasks aufgerufen wird.
+
+        - callback: Funktion mit Signatur callback(task_name: str, status: str)
+        """
+        self._status_callbacks.append(callback)
+
+    def notify_status(self, task_name, status):
+        """Benachrichtige alle registrierten Callbacks über eine Statusänderung eines Tasks.
+
+        - task_name: Name des Tasks
+        - status: Neuer Status (z.B. "started", "completed")
+        """
+        for callback in self._status_callbacks:
+            callback(task_name, status)
+
+    def register_pipeline_status_callback(self, callback):
+        """Registriert einen Callback für Pipeline-Statusänderungen."""
+        self._pipeline_status_callbacks.append(callback)
+
+    def notify_pipeline_status(self, status):
+        """Benachrichtigt alle registrierten Observer über den Pipeline-Status."""
+        self.status = status
+        for cb in self._pipeline_status_callbacks:
+            try:
+                cb(status)
+            except Exception as e:
+                # Fehler im Callback nicht die Pipeline stoppen lassen
+                print(f"Pipeline status callback error: {e}")
 
     # --- Kleine Pipeline-Factory-Methoden für Sub-Pipelines (vermeiden Duplikate) ---
     @classmethod
@@ -171,7 +207,8 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
         p.config_d = doc.get('config_d', {})
         #log_context(p.config_d, "Pipeline.from_config_doc config_d")
         p.config = doc
-
+        p._status_callbacks = []
+        p._pipeline_status_callbacks = []  # Liste der Pipeline-Status-Callbacks
         return p
 
     @classmethod
@@ -455,10 +492,29 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
 
         for name in nx.topological_sort(self.G):
             #logger.debug(" 'run_all' calls _run_task %s", name)
-            ### RUN the innner task method, returns None usually
             #log_context(context, f"Before calling _run_task {name}")
+
+            task_def = self.task_defs[name]
+            if task_def['action'] == 'stop':
+                logger.info("Pipeline %s stopped by StopTask", self.plname)
+                self.notify_status(name, "done")
+                self.notify_pipeline_status("stopped")
+                break
+            ### RUN the innner task method, returns None usually
             last_task = self._run_task(name, context)
-            #logger.debug(">>> run_all: last_task=%s", last_task)
+            logger.debug(">>> run_all: last_task=%s", last_task)
+
+            """
+            if type(last_task) == str:
+                if last_task == 'PL stopped':
+                    # stop task was encountered
+                    logger.info("Pipeline %s stopped by StopTask", self.plname)
+                    self.notify_pipeline_status("stopped")
+                    break
+                elif last_task == 'skipped':
+                    logger.info("Pipeline %s: task %s was skipped", self.plname, name)
+                    # continue with next task
+            """
 
         console.print(Text(f"  {self.plname:<20}{'    '*pllvl} END", style=self.style))
         return context
@@ -480,6 +536,7 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
 
 
     def _run_task(self, name, context) -> Task | None:
+        self.notify_status(name, "started")
 
         task_def = self.task_defs[name]
         #logger.debug('--- NEXT %s, action: %s', name, task_def['action'])
@@ -527,8 +584,9 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
                 pass
 
         if skip_task:
+            self.notify_status(name, "skipped")
             self.skipped_tasks.append(name)
-            return None
+            return 'skipped'
 
         out_task = Text(f"{name}")
 
@@ -537,6 +595,12 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
 
         content = Text.assemble(out_plname, out_idx, out_task)
         console.print(content)
+
+        # Graceful Stop: Wenn action=stop, Status melden und Rückgabe
+        # XXX StopTask code not used anymore?
+        #if task_def.get('action') == 'stop':
+        #    self.notify_status(name, "done")
+        #    return 'PL stopped'
 
         if loop_items:
             task.run_with_loop()
@@ -551,6 +615,7 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
             #log_context(task.context, 'IncludePipelineTask sub-context')
             #self._merge_context(context, task.context)
 
+        self.notify_status(name, "done")
         log_context(context, '_run_task done: '+name)
         # only for context transfer at end of subpipeline
         #logger.debug(">>> _run_task returning task object %s", task.name)
@@ -602,3 +667,27 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
             task_index[task_name] = idx
         return task_index
 
+    def step_init(self):
+        """Initialisiert den Step-Modus: Reihenfolge, Index, Kontext."""
+        self._step_order = list(nx.topological_sort(self.G))
+        self._step_index = 0
+        self._step_context = self.prepare_context()
+        self.task_index = self.build_task_index()  # Fix: task_index für Step-Modus initialisieren
+        return self._step_order
+
+    def step_next(self):
+        """Führt den nächsten Task im Step-Modus aus und erhöht den Index. Gibt Tasknamen zurück oder None wenn fertig."""
+        if not hasattr(self, '_step_order') or self._step_order is None:
+            self.step_init()
+        if self._step_index >= len(self._step_order):
+            return None
+        task_name = self._step_order[self._step_index]
+        self._run_task(task_name, self._step_context)
+        self._step_index += 1
+        return task_name
+
+    def step_reset(self):
+        """Setzt den Step-Modus zurück."""
+        self._step_order = None
+        self._step_index = 0
+        self._step_context = None
