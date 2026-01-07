@@ -4,7 +4,8 @@ from textual.containers import Horizontal, Vertical
 from textual.widgets import ListView, ListItem, Label, Button, Static, Collapsible, RichLog
 from ypipe.baseScreen import BaseScreen
 from ypipe.pipeline import Pipeline
-from .pipeline_tui_view import PipelineTUIView
+from .pipeline_tui_view import PipelineTUIView, PipelineContainer
+from .task_result_view import TaskResultView
 from textual.worker import Worker
 from rich.markup import escape
 from rich.text import Text
@@ -20,9 +21,13 @@ class YpipeTuiApp(BaseScreen):
         super().__init__(*args, **kwargs)
         self.pipeline = pipeline
         self.pipeline.load_task_definitions()
-        self.view = PipelineTUIView(pipeline)
+        #self.view_pipeline = PipelineTUIView(pipeline)
+        self.view_pipeline = PipelineContainer(pipeline)
+        self.view_taskresult = TaskResultView(pipeline)
         self.task_views = {}
-        self.pipeline.register_status_callback(self.on_task_status)
+
+        self.pipeline.register_task_status_callback(self.on_task_status)
+        self.pipeline.register_pipeline_status_callback(self.on_pipeline_status)
         # Pipeline-Status-Anzeige
         # Entfernt: Step-Modus-Variablen, diese sind jetzt in Pipeline
 
@@ -30,6 +35,19 @@ class YpipeTuiApp(BaseScreen):
         # Wird von der Pipeline aufgerufen, wenn ein Task startet/fertig ist
         # UI-Update im richtigen Thread
         self.call_from_thread(self.update_task_status, task_name, status)
+        if status == "done":
+            self.view_taskresult.update(task_name=task_name)
+
+    def on_pipeline_status(self, pl_name, status):
+        # Wird von der Pipeline aufgerufen, wenn sich der Pipeline-Status ändert
+        self.call_from_thread(self.status_log.write, Text.from_markup(f"[b]Pipeline {pl_name} status:[/b] {status}"))
+        if status == "stopped":
+            self.status_log.write(Text.from_markup("[red]Pipeline wurde gestoppt (action=stop). Die TUI bleibt aktiv.[/red]"))
+            self.pipeline_status_label.update("[red]gestoppt[/red]")
+        elif status == "enter sub-pipeline":
+            self.status_log.write(Text.from_markup(f"[blue]Entering sub-pipeline {pl_name}[/blue]"))
+            self.view_pipeline.add_sub_table()
+
 
     def update_task_status(self, task_name, status):
         # Status-Log aktualisieren
@@ -37,8 +55,8 @@ class YpipeTuiApp(BaseScreen):
         # Pipeline-Status aktualisieren
         self.pipeline_status_label.update(f"[b]{task_name}[/b]")
         # Status im DataTable aktualisieren
-        if hasattr(self.view, "update_task_status_in_table"):
-            self.view.update_task_status_in_table(task_name, status)
+        if hasattr(self.view_pipeline, "update_task_status_in_table"):
+            self.view_pipeline.update_task_status_in_table(task_name, status)
         if status == "stopped":
             self.status_log.write(Text.from_markup("[red]Pipeline wurde gestoppt (action=stop). Die TUI bleibt aktiv.[/red]"))
             self.pipeline_status_label.update("[red]gestoppt[/red]")
@@ -49,7 +67,11 @@ class YpipeTuiApp(BaseScreen):
         return self.compose_main()
 
     def compose_main(self):
-        left_pane = self.view
+        left_pane = self.view_pipeline
+        # welche plname, subpipeline tiefe sind wir?
+        # PipelineTUIView mehrfach erzeugen gemäss der level tiefe
+
+        #left.pane.
         self.task_views = self.create_task_views()
 
         # Control Panel mit Buttons
@@ -62,7 +84,7 @@ class YpipeTuiApp(BaseScreen):
         ),
             Button("Start", id="btn_start"),
             Button("Stop", id="btn_stop"),
-            Button("Nächster Task", id="btn_next"),
+            Button("Next Task", id="btn_next"),
             classes="CPanel"
         )
         # Pipeline-Status-Anzeige
@@ -77,11 +99,14 @@ class YpipeTuiApp(BaseScreen):
             # Collapsible: Task-Name als Überschrift, TaskView als Inhalt (collapsed by default)
             collapsible = Collapsible(task_view, title=name, collapsed=True)
             listarg.append(ListItem(collapsible))
-        content_cont = ListView(*listarg)
+        #content_cont = ListView(*listarg)
+
+        content_cont = Static("TV")
 
         # Layout: ControlPanel oben, darunter StatusLabel, darunter die TaskViews
         main_content = Vertical(control_panel, status_panel, content_cont)
-        layout = Horizontal(left_pane, main_content)
+        pipeline_cont = Horizontal(left_pane, main_content)
+        layout = Vertical(pipeline_cont, self.view_taskresult)
         return layout
 
     def create_task_views(self):
@@ -138,3 +163,4 @@ class YpipeTuiApp(BaseScreen):
             self.call_from_thread(self._set_status_done)
         else:
             self.call_from_thread(self.status_log.write, Text.from_markup(f"[yellow]Task {task_name} fertig![/yellow]"))
+

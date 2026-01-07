@@ -20,6 +20,7 @@ from .taskFactory import TaskFactory
 from .context import Context
 #from ypipe.test_ypipe import app_name
 from .log_utils import log_context
+from .ypipe_app import YpipeApp
 
 logger = setup_logger(__name__, __name__+'.log')
 console = Console()
@@ -128,39 +129,37 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
             raise RuntimeError(f"Pipeline init: config file {self.plname + '.yml'} not found in {self.config_dir}!")
 
         self.config = self.load_config(self.plname + '.yml', phase_subdir='yp')
-        self._status_callbacks = []
+        self._task_status_callbacks = []
         self.style = ""
 
         # Pipeline-Status
         self.status = "initialized"  # Pipeline-Status
         self._pipeline_status_callbacks = []  # Liste der Pipeline-Status-Callbacks
 
-    def register_status_callback(self, callback):
+    def register_task_status_callback(self, callback):
         """Registriere eine Callback-Funktion, die bei Statusänderungen von Tasks aufgerufen wird.
-
         - callback: Funktion mit Signatur callback(task_name: str, status: str)
         """
-        self._status_callbacks.append(callback)
+        self._task_status_callbacks.append(callback)
 
-    def notify_status(self, task_name, status):
+    def notify_task_status(self, task_name, status):
         """Benachrichtige alle registrierten Callbacks über eine Statusänderung eines Tasks.
-
         - task_name: Name des Tasks
         - status: Neuer Status (z.B. "started", "completed")
         """
-        for callback in self._status_callbacks:
+        for callback in self._task_status_callbacks:
             callback(task_name, status)
 
     def register_pipeline_status_callback(self, callback):
         """Registriert einen Callback für Pipeline-Statusänderungen."""
         self._pipeline_status_callbacks.append(callback)
 
-    def notify_pipeline_status(self, status):
+    def notify_pipeline_status(self, plname, status):
         """Benachrichtigt alle registrierten Observer über den Pipeline-Status."""
         self.status = status
         for cb in self._pipeline_status_callbacks:
             try:
-                cb(status)
+                cb(plname, status)
             except Exception as e:
                 # Fehler im Callback nicht die Pipeline stoppen lassen
                 print(f"Pipeline status callback error: {e}")
@@ -207,7 +206,7 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
         p.config_d = doc.get('config_d', {})
         #log_context(p.config_d, "Pipeline.from_config_doc config_d")
         p.config = doc
-        p._status_callbacks = []
+        p._task_status_callbacks = []
         p._pipeline_status_callbacks = []  # Liste der Pipeline-Status-Callbacks
         return p
 
@@ -493,18 +492,19 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
         for name in nx.topological_sort(self.G):
             #logger.debug(" 'run_all' calls _run_task %s", name)
             #log_context(context, f"Before calling _run_task {name}")
-
+            """
+            # NEEDS to be in _run_task now, because of step runs
             task_def = self.task_defs[name]
             if task_def['action'] == 'stop':
                 logger.info("Pipeline %s stopped by StopTask", self.plname)
                 self.notify_status(name, "done")
                 self.notify_pipeline_status("stopped")
                 break
+            """
             ### RUN the innner task method, returns None usually
             last_task = self._run_task(name, context)
             logger.debug(">>> run_all: last_task=%s", last_task)
 
-            """
             if type(last_task) == str:
                 if last_task == 'PL stopped':
                     # stop task was encountered
@@ -514,6 +514,7 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
                 elif last_task == 'skipped':
                     logger.info("Pipeline %s: task %s was skipped", self.plname, name)
                     # continue with next task
+            """
             """
 
         console.print(Text(f"  {self.plname:<20}{'    '*pllvl} END", style=self.style))
@@ -536,10 +537,17 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
 
 
     def _run_task(self, name, context) -> Task | None:
-        self.notify_status(name, "started")
+        self.notify_task_status(name, "started")
 
         task_def = self.task_defs[name]
         #logger.debug('--- NEXT %s, action: %s', name, task_def['action'])
+
+        # Graceful Stop: Wenn action=stop, Status melden und Rückgabe
+        # StopTask code not used anymore
+        logger.debug('action: %s', task_def.get('action'))
+        if task_def.get('action') == 'stop':
+            self.notify_task_status(name, "done")
+            return 'PL stopped'
 
         task = self.create_task(task_def, context)
         run_flag = self.task_defs[name].get('run')
@@ -584,7 +592,7 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
                 pass
 
         if skip_task:
-            self.notify_status(name, "skipped")
+            self.notify_task_status(name, "skipped")
             self.skipped_tasks.append(name)
             return 'skipped'
 
@@ -596,26 +604,20 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
         content = Text.assemble(out_plname, out_idx, out_task)
         console.print(content)
 
-        # Graceful Stop: Wenn action=stop, Status melden und Rückgabe
-        # XXX StopTask code not used anymore?
-        #if task_def.get('action') == 'stop':
-        #    self.notify_status(name, "done")
-        #    return 'PL stopped'
-
         if loop_items:
             task.run_with_loop()
         else:
             task.run()
 
         # if task was an IncludePipelineTask, merge sub-context back
-        if task_def['action'] == 'includePipeline':
-            pass
+        #if task_def['action'] == 'includePipeline':
+            #pass
             #logger.debug("context after IncludePipelineTask")
             #logger.debug("Merging sub-pipeline context back into main context after IncludePipelineTask")
             #log_context(task.context, 'IncludePipelineTask sub-context')
             #self._merge_context(context, task.context)
 
-        self.notify_status(name, "done")
+        self.notify_task_status(name, "done")
         log_context(context, '_run_task done: '+name)
         # only for context transfer at end of subpipeline
         #logger.debug(">>> _run_task returning task object %s", task.name)

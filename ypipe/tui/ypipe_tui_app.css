@@ -10,7 +10,7 @@ Static {
 Label {
     color: yellow;
     background: #222244;
-    padding: 1 2;
+    padding: 1 1;
 }
 
 TaskView {

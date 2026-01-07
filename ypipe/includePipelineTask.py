@@ -94,11 +94,14 @@ class IncludePipelineTask(Task):
         sub_pipeline.forwarded_resources = self.args.get('forward_resources', [])
         sub_pipeline.register_task_defs_from_list(task_defs) #, templ_d=sub_view)
 
+        sub_pipeline.notify_pipeline_status('enter sub-pipeline', sub_plname)
+
         ### RUN ALL TASKS IN SUB-PIPELINE
         logger.debug(f'subpipe {sub_plname} starting run_all()')
         try:
             ### Run all tasks in the sub-pipeline
             result_context = sub_pipeline.run_all()
+
             ###
         except Exception as e:
             logger.exception(f"Exception in sub-pipeline {sub_plname}: {e}")
