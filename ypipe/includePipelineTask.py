@@ -58,28 +58,34 @@ class IncludePipelineTask(Task):
             'config_d': self.context['config_d'],
         }
 
-        # create sub-pipeline via factory, sharing heavy components
+        # --- NEU: Subpipeline über YpipeApp starten ---
+        from ypipe.ypipe_app import YpipeApp
+        ypipe_app = self.context.get('ypipe_app')
+        if ypipe_app is None:
+            raise RuntimeError("YpipeApp-Instanz nicht im Kontext gefunden!")
         parent_components = {
             'fc': self.context.get('fc'),
             'storage_broker': self.context.get('storage_broker'),
             'storage_cache': self.context.get('storage_cache'),
 
         }
-        sub_plname = (include_path.stem)
-        sub_pipeline = Pipeline.from_config_doc(sub_doc,
-                            repo=self.context.get('repo'),
-                            app_name=self.context.get('app_name'),
-                            data_path=self.context.get('data_path'),
-                            plname=sub_plname,
-                            parent_components=parent_components)
+        sub_plname = include_path.stem
+        # Subpipeline-Konfig vorbereiten
+        subpipeline_cfg = sub_doc
+        # Subpipeline über YpipeApp initialisieren und starten
+        sub_pipeline = ypipe_app.run_subpipeline(
+            parent_pipeline=self.context.get('pipeline'),
+            subpipeline_name=sub_plname,
+            subpipeline_cfg=subpipeline_cfg,
+            parent_components=parent_components
+        )
 
-        sub_pipeline._parent_ctx = self.context
+        # Kontext-Handling wie gehabt
+        result_context = sub_pipeline.context
+
         pllvl_new = self.context['pllvl'] + 1
         color = self.context['color'] + 1
-        #sub_pipeline.pllvl = pllvl_new
-
         sub_pipeline.context = self.context.copy()
-        #sub_pipeline.context.store_item('pllvl', pllvl_new)
         sub_pipeline.context['pllvl'] = pllvl_new
         sub_pipeline.context['color'] = color
         logger.debug(f'sub pllvl is {pllvl_new}')
@@ -92,9 +98,6 @@ class IncludePipelineTask(Task):
 
         sub_pipeline.is_subpipeline = True
         sub_pipeline.forwarded_resources = self.args.get('forward_resources', [])
-        sub_pipeline.register_task_defs_from_list(task_defs) #, templ_d=sub_view)
-
-        sub_pipeline.notify_pipeline_status('enter sub-pipeline', sub_plname)
 
         ### RUN ALL TASKS IN SUB-PIPELINE
         logger.debug(f'subpipe {sub_plname} starting run_all()')

@@ -20,7 +20,6 @@ from .taskFactory import TaskFactory
 from .context import Context
 #from ypipe.test_ypipe import app_name
 from .log_utils import log_context
-from .ypipe_app import YpipeApp
 
 logger = setup_logger(__name__, __name__+'.log')
 console = Console()
@@ -85,22 +84,28 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
     def __init__(self, *args, **kwargs):
         self._args = args
         self._kwargs = kwargs
-        #logger.debug('kwargs: %s', kwargs)
+        logger.debug('kwargs: %s', kwargs)
         self.tasks = {}
         self.task_defs = {}
         self.dependencies = defaultdict(list)
 
-        # sub components
-        self.G = nx.DiGraph()
-        self.fc = FrameIOandCacheSupport()
-        self.storage_broker = StorageBroker()
-        self.storage_cache = StorageCache(self.storage_broker.st_class_factory, rws='s')
+        # Komponenten können vom Parent übernommen werden (für Subpipelines)
+        parent_components = kwargs.get('parent_components', None)
+        if parent_components:
+            self.fc = parent_components.get('fc')
+            self.storage_broker = parent_components.get('storage_broker')
+            self.storage_cache = parent_components.get('storage_cache')
+        else:
+            self.fc = FrameIOandCacheSupport()
+            self.storage_broker = StorageBroker()
+            self.storage_cache = StorageCache(self.storage_broker.st_class_factory, rws='s')
 
-        # DEV tmp
-        # kwargs assignments
+        self.G = nx.DiGraph()
+
         self.repo = kwargs.get('repo', None)
         self.app_name = kwargs.get('app_name', 'stubapp')
-        self.project_dir = kwargs.get('project_dir', self.repo.joinpath(self.app_name))
+        # XXX data_master is missing
+        self.project_dir = kwargs.get('project_dir')
         # the next ones must be set so we can call YamlConfigSupport methods
         self.master_config_dir = kwargs.get('master_config_dir', Path.cwd().joinpath('data_master'))
         self.config_dir = self.master_config_dir.joinpath(self.app_name)
@@ -131,10 +136,10 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
         self.config = self.load_config(self.plname + '.yml', phase_subdir='yp')
         self._task_status_callbacks = []
         self.style = ""
-
-        # Pipeline-Status
-        self.status = "initialized"  # Pipeline-Status
-        self._pipeline_status_callbacks = []  # Liste der Pipeline-Status-Callbacks
+        self.status = "initialized"
+        self._pipeline_status_callbacks = []
+        # Referenz auf Parent-Pipeline, falls Subpipeline
+        self.parent_pipeline = kwargs.get('parent_pipeline', None)
 
     def register_task_status_callback(self, callback):
         """Registriere eine Callback-Funktion, die bei Statusänderungen von Tasks aufgerufen wird.
@@ -165,50 +170,50 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
                 print(f"Pipeline status callback error: {e}")
 
     # --- Kleine Pipeline-Factory-Methoden für Sub-Pipelines (vermeiden Duplikate) ---
-    @classmethod
-    def from_config_doc(cls, doc, *, repo=None, app_name=None, data_path=None, plname=None, parent_components: dict = None):
-        """Erzeuge eine minimal konfiguriere Pipeline aus einem geladenen config-dict.
+    # Die Methode from_config_doc ist entfernt, da sie nicht mehr benötigt wird.
+    #def from_config_doc(cls, doc, *, repo=None, app_name=None, data_path=None, plname=None, parent_components: dict = None):
+    #    """Erzeuge eine minimal konfiguriere Pipeline aus einem geladenen config-dict.
 
-        - doc: bereits geparstes YAML (dict)
-        - parent_components: optionaler dict mit 'fc', 'storage_broker', 'storage_cache' um Ressourcen zu teilen
-        """
-        p = object.__new__(cls)
+    #    - doc: bereits geparstes YAML (dict)
+    #    - parent_components: optionaler dict mit 'fc', 'storage_broker', 'storage_cache' um Ressourcen zu teilen
+    #    """
+    #    p = object.__new__(cls)
 
-        # minimale interne Felder
-        p._args = ()
-        p._kwargs = {}
-        p.tasks = {}
-        p.task_defs = {}
-        p.dependencies = defaultdict(list)
-        p.G = nx.DiGraph()
+    #    # minimale interne Felder
+    #    p._args = ()
+    #    p._kwargs = {}
+    #    p.tasks = {}
+    #    p.task_defs = {}
+    #    p.dependencies = defaultdict(list)
+    #    p.G = nx.DiGraph()
 
-        parent = parent_components or {}
-        # reuse heavy components if übergeben, ansonsten neu anlegen
-        # XXX eindeutiger machen
-        p.fc = parent.get('fc') or FrameIOandCacheSupport()
-        p.storage_broker = parent.get('storage_broker') or StorageBroker()
-        p.storage_cache = parent.get('storage_cache') or StorageCache(p.storage_broker.st_class_factory, rws='s')
+    #    parent = parent_components or {}
+    #    # reuse heavy components if übergeben, ansonsten neu anlegen
+    #    # XXX eindeutiger machen
+    #    p.fc = parent.get('fc') or FrameIOandCacheSupport()
+    #    p.storage_broker = parent.get('storage_broker') or StorageBroker()
+    #    p.storage_cache = parent.get('storage_cache') or StorageCache(p.storage_broker.st_class_factory, rws='s')
 
-        # identity / paths
-        p.repo = repo
-        p.app_name = app_name or doc.get('app_name', 'stubapp')
-        p.project_dir = p.repo.joinpath(p.app_name)
-        p.master_config_dir = p.repo.joinpath('data_master')
-        p.config_dir = p.master_config_dir.joinpath(p.app_name)
-        p.data_path = data_path
-        p.plname = plname or doc.get('plname', 'included_pipeline')
-        #logger.debug(f"Pipeline.from_config_doc: app_name={p.app_name}, pl_name={p.plname}")
-        p.sub = p.app_name
-        p.phase = ''
-        p.options = {}
-        p.app_type = doc.get('app_type', 'tree')
+    #    # identity / paths
+    #    p.repo = repo
+    #    p.app_name = app_name or doc.get('app_name', 'stubapp')
+    #    p.project_dir = p.repo.joinpath(p.app_name)
+    #    p.master_config_dir = p.repo.joinpath('data_master')
+    #    p.config_dir = p.master_config_dir.joinpath(p.app_name)
+    #    p.data_path = data_path
+    #    p.plname = plname or doc.get('plname', 'included_pipeline')
+    #    #logger.debug(f"Pipeline.from_config_doc: app_name={p.app_name}, pl_name={p.plname}")
+    #    p.sub = p.app_name
+    #    p.phase = ''
+    #    p.options = {}
+    #    p.app_type = doc.get('app_type', 'tree')
 
-        p.config_d = doc.get('config_d', {})
-        #log_context(p.config_d, "Pipeline.from_config_doc config_d")
-        p.config = doc
-        p._task_status_callbacks = []
-        p._pipeline_status_callbacks = []  # Liste der Pipeline-Status-Callbacks
-        return p
+    #    p.config_d = doc.get('config_d', {})
+    #    #log_context(p.config_d, "Pipeline.from_config_doc config_d")
+    #    p.config = doc
+    #    p._task_status_callbacks = []
+    #    p._pipeline_status_callbacks = []  # Liste der Pipeline-Status-Callbacks
+    #    return p
 
     @classmethod
     def from_config_file(cls, path, **kwargs):
@@ -304,6 +309,7 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
     # only for initial context
     def prepare_context(self):
         context = Context()
+        context['ypipe_app'] = getattr(self, 'ypipe_app', None)
         context['status'] = 'initial'
         context['repo'] = self.repo
         context['result'] = None
@@ -509,7 +515,7 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
                 if last_task == 'PL stopped':
                     # stop task was encountered
                     logger.info("Pipeline %s stopped by StopTask", self.plname)
-                    self.notify_pipeline_status("stopped")
+                    self.notify_pipeline_status(self.plname, "stopped")
                     break
                 elif last_task == 'skipped':
                     logger.info("Pipeline %s: task %s was skipped", self.plname, name)

@@ -33,6 +33,7 @@ class Task: #(YamlConfigSupport):
         self.provides = self.config.get('provides', {})
         self.provide_main = self.provides.get('main', {})
         logger.debug(f"Task {self.name} provides: {self.provides}")
+        self.fg_accumulate = False
 
     def __repr__(self):
         return f"Task(name={self.name}"
