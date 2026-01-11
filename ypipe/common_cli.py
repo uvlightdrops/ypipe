@@ -95,7 +95,7 @@ def work(ctx):
     ctx.obj['pl'] = create_ypipe_app(app_name=app_name, plname=plname)
     ctx.obj['pl'].load_pipeline(plname)
     ctx.obj['pl'].active_pipeline.load_task_definitions()
-    ctx.obj['pl'].active_pipeline.init_fc() #framecache()
+    ctx.obj['pl'].init_fc() #framecache()
 
 @cli.group()
 @click.pass_context

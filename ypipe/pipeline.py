@@ -47,44 +47,11 @@ def render_template(obj, context):
     else:
         return obj
 
-class KpctrlBusinessLogic:
-    # plugin method for YamlConfigSupport
-    def additional_yaml_config_logic(self):
-        # Only apply additional logic for apps that use 'tree' storage
-        if getattr(self, 'app_type', None) != 'tree':
-            logger.debug('Skipping additional_yaml_config_logic because app_type != tree')
-            return
-        # groups with own wanted_logic cfg file
-        yml_list = self.config_dir.glob('groups/group_logic_*.yml')
-        done = []
-        for fn in yml_list:
-            group_case_name = fn.stem[12:]
-            #logger.debug('group_case_name: %s', group_case_name)
-            groupname = group_case_name
-            done.append(group_case_name)
-            # XXX BUG , same key is overridden. rewrite case handling
-            # Parse your YAML into a dictionary, then validate against your model.
-            with open(fn) as f:
-                yml = yaml.load(f, Loader=yaml.FullLoader)
-            #logger.debug('groupname: %s', groupname)
-            self.cfg_kp_wanted_logic['groups'][groupname] = yml
-        # other groups, with simple copyall logic
-        simple_list = self.cfg_kp_logic_ctrl_groups.get('loop_copyall', []) # + othres XXX
-        # XXX maybe own loop for rec
-        simple_list+= self.cfg_kp_logic_ctrl_groups.get('loop_copyall_rec', [])
-        for fn in simple_list:
-            gl = { 'group_name': {'old': fn, 'new': fn} }
-            self.cfg_kp_wanted_logic[fn] = gl
-        # logger.debug('HACKED %s', str(done))
-            yaml_str = yaml.dump(self.cfg_kp_wanted_logic[fn], default_flow_style=False)
-            logger.debug(yaml_str)
-
-
-class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
+class Pipeline:
     def __init__(self, *args, **kwargs):
         self._args = args
         self._kwargs = kwargs
-        logger.debug('kwargs: %s', kwargs)
+        #logger.debug('kwargs: %s', kwargs)
         self.tasks = {}
         self.task_defs = {}
         self.dependencies = defaultdict(list)
@@ -96,50 +63,34 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
             self.storage_broker = parent_components.get('storage_broker')
             self.storage_cache = parent_components.get('storage_cache')
         else:
-            self.fc = FrameIOandCacheSupport()
+            self.fc = None  # Wird jetzt über self.ypipe_app.fc verwendet
             self.storage_broker = StorageBroker()
             self.storage_cache = StorageCache(self.storage_broker.st_class_factory, rws='s')
 
         self.G = nx.DiGraph()
+        self.defaults = {
+            'repo':''
+        }
+        # These attributes are needed in certain Task types
+        self.app_name = kwargs.get('app_name', 'default_app')
+        kws = ['repo', 'data_path', 'master_config_dir', 'plname']
+        for key in kws:
+            logger.debug(f"Setze Attribut {key} auf {kwargs[key]}")
+            setattr(self, key, kwargs[key])
 
-        self.repo = kwargs.get('repo', None)
-        self.app_name = kwargs.get('app_name', 'stubapp')
-        # XXX data_master is missing
-        self.project_dir = kwargs.get('project_dir')
-        # the next ones must be set so we can call YamlConfigSupport methods
-        self.master_config_dir = kwargs.get('master_config_dir', Path.cwd().joinpath('data_master'))
         self.config_dir = self.master_config_dir.joinpath(self.app_name)
-        self.data_path = kwargs.get('data_path')
-        self.phase = ''
-        self.sub = self.app_name
-        self.app_type = kwargs.get('app_type', 'tree')
-        fnlist = self.load_config('fnlist.yml').get('fnlist')
-        #logger.debug('fnlist: %s', fnlist)
-        self.cache_configs(fnlist)
-        self.init_config_profile()
-        # yamlconfigsupport DONE
 
-        self.plname = kwargs.get('plname', 'yp_default')
-        logger.debug(f"Pipeline init: app_name={self.app_name}, pl_name={self.plname}, data_path={self.data_path}")
-        self.options = kwargs['options'] if 'options' in kwargs else {}
-        self.is_subpipeline = kwargs.get('is_subpipeline', False)
-        self.forwarded_resources = []
-
-        # XXX DEV
-        # YamlConfigSupport
-        #self.cfg_kp_si = self.load_config('kp_si.yml')
-
-        phase_subdir = 'yp'
-        if not self.config_dir.joinpath(phase_subdir, self.plname + '.yml').exists():
-            raise RuntimeError(f"Pipeline init: config file {self.plname + '.yml'} not found in {self.config_dir}!")
-
-        self.config = self.load_config(self.plname + '.yml', phase_subdir='yp')
-        self._task_status_callbacks = []
-        self.style = ""
-        self.status = "initialized"
-        self._pipeline_status_callbacks = []
-        # Referenz auf Parent-Pipeline, falls Subpipeline
         self.parent_pipeline = kwargs.get('parent_pipeline', None)
+        self.is_subpipeline = kwargs.get('is_subpipeline', False)
+        self.forwarded_resources = kwargs.get('forwarded_resources', [])
+
+        self.config = kwargs.get('config')
+        self.config_d = kwargs.get('config_d')
+        logger.debug(f"Pipeline {self.plname} config_d keys: {list(self.config_d.keys())}")
+
+
+        self._task_status_callbacks = []
+        self._pipeline_status_callbacks = []
 
     def register_task_status_callback(self, callback):
         """Registriere eine Callback-Funktion, die bei Statusänderungen von Tasks aufgerufen wird.
@@ -169,85 +120,6 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
                 # Fehler im Callback nicht die Pipeline stoppen lassen
                 print(f"Pipeline status callback error: {e}")
 
-    # --- Kleine Pipeline-Factory-Methoden für Sub-Pipelines (vermeiden Duplikate) ---
-    # Die Methode from_config_doc ist entfernt, da sie nicht mehr benötigt wird.
-    #def from_config_doc(cls, doc, *, repo=None, app_name=None, data_path=None, plname=None, parent_components: dict = None):
-    #    """Erzeuge eine minimal konfiguriere Pipeline aus einem geladenen config-dict.
-
-    #    - doc: bereits geparstes YAML (dict)
-    #    - parent_components: optionaler dict mit 'fc', 'storage_broker', 'storage_cache' um Ressourcen zu teilen
-    #    """
-    #    p = object.__new__(cls)
-
-    #    # minimale interne Felder
-    #    p._args = ()
-    #    p._kwargs = {}
-    #    p.tasks = {}
-    #    p.task_defs = {}
-    #    p.dependencies = defaultdict(list)
-    #    p.G = nx.DiGraph()
-
-    #    parent = parent_components or {}
-    #    # reuse heavy components if übergeben, ansonsten neu anlegen
-    #    # XXX eindeutiger machen
-    #    p.fc = parent.get('fc') or FrameIOandCacheSupport()
-    #    p.storage_broker = parent.get('storage_broker') or StorageBroker()
-    #    p.storage_cache = parent.get('storage_cache') or StorageCache(p.storage_broker.st_class_factory, rws='s')
-
-    #    # identity / paths
-    #    p.repo = repo
-    #    p.app_name = app_name or doc.get('app_name', 'stubapp')
-    #    p.project_dir = p.repo.joinpath(p.app_name)
-    #    p.master_config_dir = p.repo.joinpath('data_master')
-    #    p.config_dir = p.master_config_dir.joinpath(p.app_name)
-    #    p.data_path = data_path
-    #    p.plname = plname or doc.get('plname', 'included_pipeline')
-    #    #logger.debug(f"Pipeline.from_config_doc: app_name={p.app_name}, pl_name={p.plname}")
-    #    p.sub = p.app_name
-    #    p.phase = ''
-    #    p.options = {}
-    #    p.app_type = doc.get('app_type', 'tree')
-
-    #    p.config_d = doc.get('config_d', {})
-    #    #log_context(p.config_d, "Pipeline.from_config_doc config_d")
-    #    p.config = doc
-    #    p._task_status_callbacks = []
-    #    p._pipeline_status_callbacks = []  # Liste der Pipeline-Status-Callbacks
-    #    return p
-
-    @classmethod
-    def from_config_file(cls, path, **kwargs):
-        """Lade YAML von Datei und erstelle Pipeline via from_config_doc"""
-        pth = Path(path)
-        with open(pth, 'r', encoding='utf-8') as fh:
-            doc = yaml.safe_load(fh)
-        return cls.from_config_doc(doc, **kwargs)
-
-    # XXX ok to have the KpctrlBusinessLogic class and include the method from there?
-    #def additional_yaml_config_logic(self):
-    #    pass
-
-    def init_fc(self):
-        self.fc.phase = 'p1'
-        self.fc.phase_subdir = 'p1'
-
-        kp_list = self.config_list() + ['profile']
-        logger.debug('kp_list: %s', kp_list)
-        """
-        for attr in kp_list:
-            setattr(self.fc, 'cfg_'+attr, getattr(self, 'cfg_'+attr))
-        # legacy name
-        setattr(self.fc, 'cfg_si', getattr(self, 'cfg_kp_si'))
-        """
-        self.fc.configure(cfg_kp_frames=self.cfg_kp_frames,
-                          cfg_profile=self.cfg_profile,
-                          cfg_kp_si=self.cfg_kp_si,
-                          cfg_kp_process_fields=self.cfg_kp_process_fields)
-
-        self.fc.init_framecache() # ex
-        self.fc.init_fc_bytype()
-        self.fc.build_fieldlists(self.fc.cfg_kp_process_fields)
-
 
     # Main work XXX
     def load_task_definitions(self):
@@ -263,15 +135,18 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
         templ_d: für Template-Rendering.
         """
         # prepare all config files accessible for template rendering
-        templ_d = dict(self.config_d)
-        #log_context(templ_d, "Template context from config_d")
+        #templ_d = dict(self.config_d)
+        templ_d = self.config_d.copy()
 
+        # Debug-Ausgabe: config_d lesbar ausgeben
+        import pprint
+        logger.debug(pprint.pformat(templ_d, indent=2, width=120, compact=True, sort_dicts=False))
         # add selected context keys
         dummy_ctx = self.prepare_context()
         #log_context(dummy_ctx, 'Dummy context for templating')
 
         keys_l = (context_keys.get('path', set()) | context_keys.get('meta', set()))
-        #logger.debug(f"adding context keys for templating: {keys_l}")
+        logger.debug(f"adding context keys for templating: {keys_l}")
         for key in keys_l:
             if key in dummy_ctx:
                 templ_d[key] = dummy_ctx[key]
@@ -310,16 +185,17 @@ class Pipeline(YamlConfigSupport, KpctrlBusinessLogic):
     def prepare_context(self):
         context = Context()
         context['ypipe_app'] = getattr(self, 'ypipe_app', None)
+        context['fc'] = context['ypipe_app'].fc
+
         context['status'] = 'initial'
         context['repo'] = self.repo
         context['result'] = None
-        context['fc'] = self.fc
         context['storage_broker'] = self.storage_broker
         context['storage_cache'] = self.storage_cache
         context['data_path'] = self.data_path
         context['data_in_path'] = Path(self.data_path).joinpath('data_in', self.app_name)
         context['data_out_path'] = Path(self.data_path).joinpath('data_out', self.app_name)
-        context['project_dir'] = self.project_dir
+        #context['project_dir'] = self.project_dir
         context['config_dir'] = self.config_dir
         context['master_config_dir'] = self.master_config_dir
         context['config_d'] = self.config_d
