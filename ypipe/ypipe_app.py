@@ -5,6 +5,7 @@ Verwaltet Pipelines, Konfiguration und Status
 import yaml
 
 from ypipe.pipeline import Pipeline
+from ypipe.pipeline_output_handler import PipelineOutputHandler
 from framecache_support.frameIOandCacheSupport import FrameIOandCacheSupport
 from yaml_config_support.yamlConfigSupport import YamlConfigSupport
 
@@ -39,7 +40,7 @@ class KpctrlBusinessLogic:
 
 
 class YpipeApp(KpctrlBusinessLogic, YamlConfigSupport):
-    def __init__(self, app_name=None, **kwargs):
+    def __init__(self, app_name=None, output_handler=None, **kwargs):
         self.app_name = app_name
         self.pipelines = {}  # plname -> Pipeline
         self.active_pipeline = None
@@ -77,15 +78,17 @@ class YpipeApp(KpctrlBusinessLogic, YamlConfigSupport):
         self.fc = FrameIOandCacheSupport()
         self.init_fc()
 
-        # config_d initialisieren: Dictionary mit allen geladenen Konfigurationsdaten
-        self.config_d = {
-            'kp_frames': getattr(self, 'cfg_kp_frames', None),
-            'profile': getattr(self, 'cfg_profile', None),
-            'kp_si': getattr(self, 'cfg_kp_si', None),
-            'kp_process_fields': getattr(self, 'cfg_kp_process_fields', None),
-            'kp_logic_ctrl_groups': getattr(self, 'cfg_kp_logic_ctrl_groups', None),
-            # ggf. weitere Konfigurationsdaten ergänzen
-        }
+        # config_d initialisieren: Dictionary mit allen geladenen Konfigurationsdaten aus fnlist
+        self.config_d = {}
+        for key in fnlist:
+            attr_name = f'cfg_{key}'
+            self.config_d[key] = getattr(self, attr_name, None)
+        # Beispielhafte weitere keys wie oben explizit:
+        for key in ['profile', 'kp_logic_ctrl_groups', 'kp_wanted_logic']:
+            if key not in self.config_d:
+                self.config_d[key] = getattr(self, f'cfg_{key}', None)
+
+        self.output_handler = output_handler or PipelineOutputHandler()
 
     def load_pipeline(self, plname, pipeline_cfg=None, repo=None):
         """Pipeline laden und registrieren. repo jetzt Pflichtparameter."""

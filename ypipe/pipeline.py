@@ -88,9 +88,18 @@ class Pipeline:
         self.config_d = kwargs.get('config_d')
         logger.debug(f"Pipeline {self.plname} config_d keys: {list(self.config_d.keys())}")
 
-
         self._task_status_callbacks = []
         self._pipeline_status_callbacks = []
+        self._log_callbacks = []
+        # OutputHandler: Standardmäßig auf ConsoleOutputHandler setzen, falls nicht vorhanden
+        if not hasattr(self, 'output_handler') or self.output_handler is None:
+            try:
+                from .console_output_handler import ConsoleOutputHandler
+                self.output_handler = ConsoleOutputHandler()
+                # OutputHandler auch als Log-Callback registrieren
+                self.register_log_callback(self.output_handler.notify_log)
+            except ImportError:
+                self.output_handler = None
 
     def register_task_status_callback(self, callback):
         """Registriere eine Callback-Funktion, die bei Statusänderungen von Tasks aufgerufen wird.
@@ -123,7 +132,7 @@ class Pipeline:
 
     # Main work XXX
     def load_task_definitions(self):
-        console.print("---------- REGISTER TASKS ------------", style="bold blue")
+        self.notify_log('NEW PIPELINE', plname=self.plname)
         # we could init the real ongoing context here already?
         task_defs = self.config.get('tasks', [])
         logger.debug(f"load_task_definitions: found {len(task_defs)} task definitions in pipeline {self.plname}")
@@ -343,30 +352,17 @@ class Pipeline:
 
         # create new context here only if this is no sub-pipeline
         if self.is_subpipeline:
-            # was copied in IPP
-            #context = self._parent_ctx.copy()
             context = self.context
-            #log_context(context, "Sub-pipeline initial context from parent")
         else:
             logger.debug("===== PL is main pl %s, call prepare_context.", self.plname)
             context = self.prepare_context()
+        self.context = context  # Kontext immer als Attribut speichern
 
         # NOT ANYMORE - when sub is finished, the parent pipeline will use its own color again
-        con_colors = ['blue', 'cyan', 'green', 'yellow', 'red', 'magenta']
-        outsub = 'SUB' if self.is_subpipeline else 'MAIN'
+        #print()
         pllvl = context.get_item('pllvl')
         color = context.get_item('color')
-        color = con_colors[color % len(con_colors)]
-
-        # , Lenght=%s"
-        #output = ("%s START" + (20-len(self.plname))*" " + "-- (%s)level=%s"
-        #       % (self.plname.upper(), outsub, pllvl)) #, len(self.task_defs)))
-        fstr = f"->{self.plname.upper():<20}{'    '*pllvl} Level {pllvl:<2} " #  ({outsub:<4})"
-        self.style = "bold " + color
-        #print()
-        console.print(Text(fstr, style=self.style))
-
-        logger.debug("= PL %s", fstr)
+        self.notify_log('START', pllvl=pllvl, color=color, is_subpipeline=self.is_subpipeline)
 
         #log_context(context, "Initial context before pipeline run")
         # keep runtime context available after run for callers who need to sync state
@@ -398,8 +394,7 @@ class Pipeline:
                     # continue with next task
             """
             """
-
-        console.print(Text(f"  {self.plname:<20}{'    '*pllvl} END", style=self.style))
+        self.notify_log("END", plname=self.plname, pllvl=pllvl, color=color, is_subpipeline=self.is_subpipeline)
         return context
 
 
@@ -418,12 +413,19 @@ class Pipeline:
         self.walk_resource_dependencies(name, context)
 
 
+    def register_log_callback(self, callback):
+        """Registriert einen Callback für Log-Ausgaben."""
+        self._log_callbacks.append(callback)
+
+    def notify_log(self, *args, **kwargs):
+        for cb in self._log_callbacks:
+            cb(*args, **kwargs)
+
     def _run_task(self, name, context) -> Task | None:
         self.notify_task_status(name, "started")
 
         task_def = self.task_defs[name]
         #logger.debug('--- NEXT %s, action: %s', name, task_def['action'])
-
         # Graceful Stop: Wenn action=stop, Status melden und Rückgabe
         # StopTask code not used anymore
         logger.debug('action: %s', task_def.get('action'))
@@ -440,17 +442,15 @@ class Pipeline:
         idx = self.task_index.get(name, -1) +1
         pllvl = context.get_item('pllvl')
 
-        out_plname = Text(f"  {self.plname}{'.' * (18 - len(self.plname))}")
-        out_idx = Text(f"  {'    '*pllvl}[#{idx}]", style=self.style)
 
         self.skipped_tasks = []
         if run_flag in ['never']:
             #logger.debug(f"Skipping task {name} as run flag is set to never")
-            out_skip = Text(f"__skipping__ {name} (run=never)")
+            out_skip = f"__skipping__ {name} (run=never)"
             skip_task = True
         if run_flag == 'main_only' and self.is_subpipeline:
             #logger.debug(f"Skipping task {name} as run flag is main_only and this is subpipeline")
-            out_skip = Text(f"__skipping task (main_only): ({name})")
+            out_skip = f"__skipping task (main_only): ({name})"
             skip_task = True
 
         loop_items = self.task_defs[name].get('loop_items', None)
@@ -464,7 +464,7 @@ class Pipeline:
 
                 logger.error('Task %s requires %s but not in context (fg or f)!', name, req)
                 if DEBUG:
-                    console.print(Text(f"WARN: skip task: {name}", style="bold red"))
+                    self.notify_log('WARN', plname=self.plname, idx=idx, pllvl=pllvl, task_name=name)
                     logger.debug('Task %s skipping', name)
                     skip_task = True
                     break
@@ -475,6 +475,7 @@ class Pipeline:
 
         if skip_task:
             self.notify_task_status(name, "skipped")
+            self.notify_log(out_skip, task_name=name, plname=self.plname, idx=idx, pllvl=pllvl, color=context.get_item('color'), is_subpipeline=self.is_subpipeline)
             self.skipped_tasks.append(name)
             return 'skipped'
 
@@ -483,8 +484,13 @@ class Pipeline:
         if out_skip and False:
             out_task = out_skip
 
-        content = Text.assemble(out_plname, out_idx, out_task)
-        console.print(content)
+        self.notify_log("ASS",
+            plname=self.plname,
+            pllvl=pllvl,
+            idx=idx,
+            color=context.get_item('color'),
+            task_name=name,
+        )
 
         if loop_items:
             task.run_with_loop()
@@ -517,7 +523,8 @@ class Pipeline:
             raise RuntimeError(f"Task {start_task_name} nicht gefunden!")
         # Nur die Tasks ab dem Start-Task ausführen
         for name in sorted_tasks[start_index:]:
-            console.print(Text(f"Running task: {name}", style="bold green"))
+            self.notify_log('RUNNING', plname=self.plname, task_name=name)
+
             task = self.create_task(self.task_defs[name], context)
             result = task.run()
             logger.debug(f"Task {name} completed ")

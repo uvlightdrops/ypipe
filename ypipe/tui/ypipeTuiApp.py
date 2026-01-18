@@ -17,15 +17,18 @@ print(__name__)
 class YpipeTuiApp(BaseScreen):
 # Weitere Widgets und Views können hier hinzugefügt werden
     CSS_PATH = "ypipe_tui_app.css"
-    def __init__(self, pipeline: Pipeline, *args, **kwargs):
+    # YpipeTuiApp wird selbst ein OutputHandler für die Pipeline
+    def __init__(self, ypipe_app, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.pipeline = pipeline
+        self.ypipe_app = ypipe_app
+        self.pipeline = ypipe_app.active_pipeline
         self.pipeline.load_task_definitions()
         #self.view_pipeline = PipelineTUIView(pipeline)
-        self.view_pipeline = PipelineContainer(pipeline)
-        self.view_taskresult = TaskResultView(pipeline)
+        self.view_pipeline = PipelineContainer(self.pipeline)
+        self.view_taskresult = TaskResultView(self.pipeline)
         self.task_views = {}
 
+        # Registriere die TUI als OutputHandler/Observer
         self.pipeline.register_task_status_callback(self.on_task_status)
         self.pipeline.register_pipeline_status_callback(self.on_pipeline_status)
         # Pipeline-Status-Anzeige
@@ -33,7 +36,6 @@ class YpipeTuiApp(BaseScreen):
 
     def on_task_status(self, task_name, status):
         # Wird von der Pipeline aufgerufen, wenn ein Task startet/fertig ist
-        # UI-Update im richtigen Thread
         self.call_from_thread(self.update_task_status, task_name, status)
         if status == "done":
             self.view_taskresult.update(task_name=task_name)
@@ -68,7 +70,7 @@ class YpipeTuiApp(BaseScreen):
 
     def compose_main(self):
         left_pane = self.view_pipeline
-        # welche plname, subpipeline tiefe sind wir?
+        # welche plname, sub-pipeline tiefe sind wir?
         # PipelineTUIView mehrfach erzeugen gemäss der level tiefe
 
         #left.pane.
@@ -163,4 +165,3 @@ class YpipeTuiApp(BaseScreen):
             self.call_from_thread(self._set_status_done)
         else:
             self.call_from_thread(self.status_log.write, Text.from_markup(f"[yellow]Task {task_name} fertig![/yellow]"))
-

@@ -69,7 +69,7 @@ class StorageResourceTask(ResourceTask, StatsSupport):
         creds_file = self.args.get('creds_file', None)
         if creds_file:
             #pw = open(self.context['config_dir'].joinpath(creds_file)).read().strip()
-            pw = open(self.context['project_dir'].joinpath(creds_file)).read().strip()
+            pw = open(self.context['config_dir'].joinpath('creds', creds_file)).read().strip()
         logger.debug('SRTR - res %s type %s from %s', self.name, self.type, self.fn)
         #logger.debug('pw from file %s: %s', creds_file, pw)
         # capsulate pw in new kwargs
