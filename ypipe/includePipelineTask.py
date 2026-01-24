@@ -84,10 +84,8 @@ class IncludePipelineTask(Task):
         result_context = sub_pipeline.context
 
         pllvl_new = self.context['pllvl'] + 1
-        color = self.context['color'] + 1
         sub_pipeline.context = self.context.copy()
         sub_pipeline.context['pllvl'] = pllvl_new
-        sub_pipeline.context['color'] = color
         logger.debug(f'sub pllvl is {pllvl_new}')
         #logger.debug('self.context[pllvl]: %s', self.context['pllvl'])
         # register/render tasks and run using Pipeline API
@@ -137,7 +135,6 @@ class IncludePipelineTask(Task):
 
         # step one level down in pllvl hierarchy
         self.context['pllvl'] = result_context['pllvl'] -1
-        self.context['color'] = result_context['color']
         logger.debug(f'IncludePP copied ctx keys: {copied}')
         logger.debug('ctx pllvl: %s', self.context['pllvl'])
 

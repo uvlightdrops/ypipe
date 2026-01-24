@@ -14,61 +14,89 @@ class ConsoleOutputHandler:
     def notify_log(self, msg, task_name=None, **kwargs):
         # Standardausgabe wie bisher in pipeline.py
         # check list for kwargs
-        params = {}
+        # set some default params
+        params = {
+            'color': 0,
+            'pllvl': 0,
+            'is_subpipeline': False,
+        }
+
         for key in ['pllvl', 'color', 'idx', 'plname', 'is_subpipeline']:
             if key in kwargs:
                 params[key] = kwargs.pop(key)
             else:
-                params[key] = None
+                if not key in params:
+                    debug = key
+                    params[key] = None
             #logger.debug('set %s to %s', key, params[key])
-
+        logger.debug(params)
         pllvl = params['pllvl']
         color = params['color']
         idx = params['idx']
         plname = params['plname']
-
-        if plname is not None and task_name is None:
-            # Nur Pipeline-Name übergeben
-            out_plname = f"  {plname}{'.' * (18 - len(plname))}"
-            con = Text(f"{out_plname} - {msg}")
-            self.console.print(con, style='bold white')
-            return
-
-        if task_name is None:
-            con = f"{msg}"
-            self.console.print(con, style=self.style)
-            return
-
         logger.debug("= LOG plname=%s task_name=%s", plname, task_name)
-        #if pllvl is None:
-        #    pllvl = 0
-        color = self.con_colors[color % len(self.con_colors)]
-        extrastyle = "bold " + color
-        #self.style = style
+
+        # create each line from a few parts
+        # first is a tabulator depending on pl level, we make a dot for each nested level
+        # then the pipeline name in uppercase, left aligned to 20 chars, then level
+        # or for task running message another tab and the task idx and name
+        tab = f"{'    ' * pllvl}"
+        out_plname = Text(f"  {plname}{'.' * (18 - len(plname))}")
+        out_emp_plname = f"  {' ' * 18 }"
+        t_emp_plname = Text(f"  {' ' * 18 }")
+        spaces_nr = 18
+
+        color_str = self.con_colors[pllvl % len(self.con_colors)]
+        extrastyle = "bold " + color_str
+
+        #pl_str = f"{tab}-> {plname.upper():<20} Lvl:{pllvl:<2} "
+        out_pl_new = f"-> {plname.upper():<14} (L{pllvl:<1})"
+        out_start  = f"{plname.upper():<14} (L{pllvl:<1})"
+
+        out_task = f"{task_name}"
+        t_task = Text(f"{task_name}", style=extrastyle)
+
+        out_idx = f"[#{idx}]"
+        t_idx = Text(f"  {'    ' * pllvl}[#{idx}]", style=extrastyle)
+        out_lvl = f"{pllvl*'     '}"
+        out_lvl_pl = f"{pllvl*'  '}"
+        ## use case distinction for different messages
+        total = ''
+
 
         if msg == 'RUNNING':
-            con = Text(f"Running task: {name}", style="bold green")
+            con = Text(f"task: {name}", style="bold green")
 
-        if msg == 'START':
-            #outsub = 'MAIN'
-            #if params['is_sub_pipeline']:
-            #    outsub = 'SUB'
-            fstr = f"->{plname.upper():<20}{'    ' * pllvl} Level {pllvl:<2} "  # ({outsub:<4})"
-            logger.debug("= PL %s", fstr)
-            con = Text(fstr, style=self.style)
-        if msg == 'ASS':
-            out_task = Text(f"{task_name}", style=extrastyle)
-            out_plname = Text(f"  {plname}{'.' * (18 - len(plname))}")
-            out_idx = Text(f"  {'    '*pllvl}[#{idx}]", style=extrastyle)
-            con = Text.assemble(out_plname, out_idx, out_task)
+        elif msg == 'NEW PIPELINE':
+            return
+            #con = Text(out_pl_new, style=self.style)
 
-        if msg == 'WARN':
-            con = Text(f"WARN: skip task: {name}", style="bold red")
+        elif msg == 'START' and task_name is None:
+            con = Text(f"{out_lvl_pl}{out_start}", style=self.style)
 
-        if msg == 'END':
-            con = Text(f"  {plname:<20}{'    '*pllvl} END", style=self.style)
+        elif msg == 'ASS':
+            con = Text.assemble(t_emp_plname, t_idx, t_task)
+            total = f"{out_emp_plname}{out_lvl} {out_idx}{out_task}"
+            con = Text(total, style=extrastyle)
 
-        self.console.print(con, style=self.style)
+        elif msg == 'WARN':
+            t_skip = Text('SKIP ', style="bold red")
+            t_spc = Text(out_lvl)
+            t_emp_plname = Text(f"{15*' '}")
+            t_it = Text(f" {out_idx}{out_task}", style=extrastyle)
+            con = Text.assemble(t_emp_plname, t_spc, t_skip, t_it)
+
+        elif msg == 'END':
+            return
+            con = Text(f" {out_plname}END", style=self.style)
+
+        else:
+            con = "DEFAULT CASE: " + msg
+
+        outcon = con
+        if type(con) == str:
+            outcon = Text(con)
+        self.console.print(outcon, style=self.style)
 
         # Generische Fallback-Ausgabe
     #    self.console.print("XX ", kwargs)

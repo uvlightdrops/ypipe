@@ -75,7 +75,7 @@ class Pipeline:
         self.app_name = kwargs.get('app_name', 'default_app')
         kws = ['repo', 'data_path', 'master_config_dir', 'plname']
         for key in kws:
-            logger.debug(f"Setze Attribut {key} auf {kwargs[key]}")
+            #logger.debug(f"Setze Attribut {key} auf {kwargs[key]}")
             setattr(self, key, kwargs[key])
 
         self.config_dir = self.master_config_dir.joinpath(self.app_name)
@@ -86,7 +86,8 @@ class Pipeline:
 
         self.config = kwargs.get('config')
         self.config_d = kwargs.get('config_d')
-        logger.debug(f"Pipeline {self.plname} config_d keys: {list(self.config_d.keys())}")
+        #logger.debug(f"Pipeline {self.plname} config_d keys: {list(self.config_d.keys())}")
+        logger.debug(list(self.config_d.keys()))
 
         self._task_status_callbacks = []
         self._pipeline_status_callbacks = []
@@ -148,19 +149,20 @@ class Pipeline:
         templ_d = self.config_d.copy()
 
         # Debug-Ausgabe: config_d lesbar ausgeben
-        import pprint
-        logger.debug(pprint.pformat(templ_d, indent=2, width=120, compact=True, sort_dicts=False))
+        #import pprint
+        #logger.debug(pprint.pformat(templ_d, indent=2, width=120, compact=True, sort_dicts=False)))
         # add selected context keys
         dummy_ctx = self.prepare_context()
         #log_context(dummy_ctx, 'Dummy context for templating')
 
         keys_l = (context_keys.get('path', set()) | context_keys.get('meta', set()))
-        logger.debug(f"adding context keys for templating: {keys_l}")
+        #logger.debug(f"adding context keys for templating: {keys_l}")
         for key in keys_l:
             if key in dummy_ctx:
                 templ_d[key] = dummy_ctx[key]
             else:
-                logger.debug(f"load_task_definitions: key {key} not in dummy_ctx")
+                pass
+                #logger.debug(f"load_task_definitions: key {key} not in dummy_ctx")
         #log_context(templ_d, "Template context for task definitions")
 
         for t_def in task_defs:
@@ -176,7 +178,6 @@ class Pipeline:
     def register_task_def(self, t_def):
         Task.validate_config(t_def)
         #logger.debug('Registering task: %s', t_def['name'])
-        # XXX click.secho later in two colors split by underscore
         name = t_def['name']
         self.task_defs[name] = t_def
         self.G.add_node(name)
@@ -211,7 +212,6 @@ class Pipeline:
         # expose app_name for tasks
         context['app_name'] = self.app_name
         context['pllvl'] = 0
-        context['color'] = 0
         #self.pllvl = 0
         return context
 
@@ -361,8 +361,7 @@ class Pipeline:
         # NOT ANYMORE - when sub is finished, the parent pipeline will use its own color again
         #print()
         pllvl = context.get_item('pllvl')
-        color = context.get_item('color')
-        self.notify_log('START', pllvl=pllvl, color=color, is_subpipeline=self.is_subpipeline)
+        self.notify_log('START', pllvl=pllvl, plname=self.plname, is_subpipeline=self.is_subpipeline)
 
         #log_context(context, "Initial context before pipeline run")
         # keep runtime context available after run for callers who need to sync state
@@ -394,7 +393,7 @@ class Pipeline:
                     # continue with next task
             """
             """
-        self.notify_log("END", plname=self.plname, pllvl=pllvl, color=color, is_subpipeline=self.is_subpipeline)
+        self.notify_log("END", plname=self.plname, pllvl=pllvl, is_subpipeline=self.is_subpipeline)
         return context
 
 
@@ -446,11 +445,9 @@ class Pipeline:
         self.skipped_tasks = []
         if run_flag in ['never']:
             #logger.debug(f"Skipping task {name} as run flag is set to never")
-            out_skip = f"__skipping__ {name} (run=never)"
             skip_task = True
         if run_flag == 'main_only' and self.is_subpipeline:
             #logger.debug(f"Skipping task {name} as run flag is main_only and this is subpipeline")
-            out_skip = f"__skipping task (main_only): ({name})"
             skip_task = True
 
         loop_items = self.task_defs[name].get('loop_items', None)
@@ -464,7 +461,7 @@ class Pipeline:
 
                 logger.error('Task %s requires %s but not in context (fg or f)!', name, req)
                 if DEBUG:
-                    self.notify_log('WARN', plname=self.plname, idx=idx, pllvl=pllvl, task_name=name)
+                    self.notify_log('DEBUG', plname=self.plname, idx=idx, pllvl=pllvl, task_name=name)
                     logger.debug('Task %s skipping', name)
                     skip_task = True
                     break
@@ -475,7 +472,8 @@ class Pipeline:
 
         if skip_task:
             self.notify_task_status(name, "skipped")
-            self.notify_log(out_skip, task_name=name, plname=self.plname, idx=idx, pllvl=pllvl, color=context.get_item('color'), is_subpipeline=self.is_subpipeline)
+            # XXX set some attributes as options dict on pipeline init and configure output_handler once
+            self.notify_log('WARN', task_name=name, plname=self.plname, idx=idx, pllvl=pllvl, is_subpipeline=self.is_subpipeline)
             self.skipped_tasks.append(name)
             return 'skipped'
 
@@ -488,7 +486,6 @@ class Pipeline:
             plname=self.plname,
             pllvl=pllvl,
             idx=idx,
-            color=context.get_item('color'),
             task_name=name,
         )
 
