@@ -67,7 +67,7 @@ class YpipeApp(KpctrlBusinessLogic, YamlConfigSupport):
             setattr(self, key, kwargs.get(key, default))
 
         # --- Zentrale Attribute, die vorher in Pipeline waren ---
-        self.config = None
+        #self.config = None
         self.style = ""
         # --------------------------------------------------------
 
@@ -89,6 +89,16 @@ class YpipeApp(KpctrlBusinessLogic, YamlConfigSupport):
                 self.config_d[key] = getattr(self, f'cfg_{key}', None)
 
         self.output_handler = output_handler or PipelineOutputHandler()
+        #options = {
+        #    'plname': self.active_pipeline
+        #}
+        #self.output_handler.configure(options)
+        self.figure()
+
+    def load_pipeline_config(self, plname):
+        logger.debug('load')
+        pipeline_cfg = self.load_config(f"{plname}.yml", phase_subdir='yp')
+        return pipeline_cfg
 
     def load_pipeline(self, plname, pipeline_cfg=None, repo=None):
         """Pipeline laden und registrieren. repo jetzt Pflichtparameter."""
@@ -119,6 +129,7 @@ class YpipeApp(KpctrlBusinessLogic, YamlConfigSupport):
             plname = self.active_pipeline.plname if self.active_pipeline else None
         if plname and plname in self.pipelines:
             self.status = "running"
+            self.pipelines[plname].load_task_definitions()
             self.pipelines[plname].run_all()
             self.status = "done"
         else:
@@ -177,7 +188,7 @@ class YpipeApp(KpctrlBusinessLogic, YamlConfigSupport):
     def run_subpipeline(self, parent_pipeline, subpipeline_name, subpipeline_cfg,
                         parent_components=None, repo=None, app_name=None):
         """Lädt, registriert und startet eine Subpipeline. Gibt die Subpipeline-Instanz zurück."""
-
+        logger.debug('subpipeline_name : %s', subpipeline_name)
         pipeline = self.load_pipeline(subpipeline_name, subpipeline_cfg, repo)
         pipeline.register_task_defs_from_list(subpipeline_cfg.get('tasks', []))
         pipeline.run_all()
@@ -190,7 +201,7 @@ class YpipeApp(KpctrlBusinessLogic, YamlConfigSupport):
         kp_list = []
         if hasattr(self, 'config_list'):
             kp_list = self.config_list() + ['profile']
-        logger.debug('kp_list: %s', kp_list)
+        #logger.debug('kp_list: %s', kp_list)
         self.fc.configure(cfg_kp_frames=getattr(self, 'cfg_kp_frames', None),
                           cfg_profile=getattr(self, 'cfg_profile', None),
                           cfg_kp_si=getattr(self, 'cfg_kp_si', None),
@@ -198,5 +209,44 @@ class YpipeApp(KpctrlBusinessLogic, YamlConfigSupport):
         self.fc.init_framecache()
         self.fc.init_fc_bytype()
         self.fc.build_fieldlists(getattr(self.fc, 'cfg_kp_process_fields', None))
+
+    def figure(self):
+        # load main pipeline
+        config_main = self.load_pipeline_config(self.plname)
+        #config_main = self.active_pipeline.config
+        config_dir = self.config_dir
+        logger.debug('config_main: %s', config_main)
+        logger.debug('config_main[name]: %s', config_main['name'])
+        self.structure = self.get_pipeline_hierarchy(config_main, config_dir)
+
+        self.active_pipeline = self.load_pipeline(self.plname)
+
+
+    def get_pipeline_hierarchy(self, config, config_dir):
+        """
+        Ermittelt rekursiv die Pipeline- und Subpipeline-Hierarchie als verschachteltes Dict.
+        Es werden keine Pipeline-Objekte erzeugt, sondern nur die Namen gesammelt.
+        - config: dict der Pipeline-Konfiguration (optional, sonst self.config)
+        - config_dir: pathlib.Path zum Verzeichnis der Pipeline-Konfigs (optional, sonst self.config_dir)
+        """
+        # we start with plain config of the main pipeline
+        # and build a dict of dependencies
+        name = config['name']
+        structure = {name: {}}
+        for task in config.get('tasks', []):
+            action = task.get('action', '')
+            if action in ('includePipeline', 'include_pipeline') or task.get('type') == 'IncludePipelineTask':
+                include = task.get('args', {}).get('include')
+                if not include:
+                    continue
+                sub_path = config_dir.joinpath('yp', include).with_suffix('.yml')
+                if sub_path.exists():
+                    with open(sub_path, 'r', encoding='utf-8') as fh:
+                        sub_cfg = yaml.safe_load(fh)
+                    sub_struct = self.get_pipeline_hierarchy(sub_cfg, config_dir)
+                    structure[name].update(sub_struct)
+                else:
+                    structure[name][include] = {}
+        return structure
 
     # Weitere Methoden für Subpipelines, Events, etc. können ergänzt werden

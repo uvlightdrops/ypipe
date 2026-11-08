@@ -40,51 +40,62 @@ class ConsoleOutputHandler:
         # first is a tabulator depending on pl level, we make a dot for each nested level
         # then the pipeline name in uppercase, left aligned to 20 chars, then level
         # or for task running message another tab and the task idx and name
-        tab = f"{'    ' * pllvl}"
-        out_plname = Text(f"  {plname}{'.' * (18 - len(plname))}")
-        out_emp_plname = f"  {' ' * 18 }"
-        t_emp_plname = Text(f"  {' ' * 18 }")
-        spaces_nr = 18
-
         color_str = self.con_colors[pllvl % len(self.con_colors)]
         extrastyle = "bold " + color_str
 
-        #pl_str = f"{tab}-> {plname.upper():<20} Lvl:{pllvl:<2} "
-        out_pl_new = f"-> {plname.upper():<14} (L{pllvl:<1})"
-        out_start  = f"{plname.upper():<14} (L{pllvl:<1})"
+        #tab = f"{'    ' * pllvl}"
+        #out_plname = f"  {plname}{'.' * (18 - len(plname))}"
+        #out_emp_plname = f"  {' ' * 18 }"
+        #t_emp_plname = Text(f"  {' ' * 18 }")
+        spaces_nr = 14
+        pl_indent = 3
+
+        num_spaces = 14 - (pl_indent * (pllvl+1))
+
+        def pt_str(pllvl):
+            t_list = []
+            for l in range(pllvl+1):
+                c_idx = l % len(self.con_colors)
+                es = "bold " + self.con_colors[c_idx]
+                t_list.append(Text("|   ", style=es))
+            return Text.assemble(*t_list)
+
+        t_pt = pt_str(pllvl)
 
         out_task = f"{task_name}"
-        t_task = Text(f"{task_name}", style=extrastyle)
-
         out_idx = f"[#{idx}]"
-        t_idx = Text(f"  {'    ' * pllvl}[#{idx}]", style=extrastyle)
-        out_lvl = f"{pllvl*'     '}"
-        out_lvl_pl = f"{pllvl*'  '}"
+        num_indent = 4
+        char_indent = '.'
+        out_lvl = f"{pllvl * num_indent * char_indent}"
+        t_spc   = Text(out_lvl)
+        t_empty = Text("")
+        t_skip  = t_empty
+        t_it    = t_empty
+
         ## use case distinction for different messages
-        total = ''
-
-
-        if msg == 'RUNNING':
-            con = Text(f"task: {name}", style="bold green")
+        if msg == 'RUN':
+            t_it = Text(f"task: {name}", style="bold green")
 
         elif msg == 'NEW PIPELINE':
-            return
-            #con = Text(out_pl_new, style=self.style)
+            out_pl_new = f"->{plname.upper():<14} NEW"
+            t_pt = Text(f"{out_pl_new}", style=self.style)
 
         elif msg == 'START' and task_name is None:
-            con = Text(f"{out_lvl_pl}{out_start}", style=self.style)
+            return
+            t_pt = pt_str(pllvl-1)
+            t_spc = t_empty
+            out_start = f"{plname.upper():<12} (L{pllvl:<1})"
+            t_it = Text(f"{out_start}", style=self.style)
 
         elif msg == 'ASS':
-            con = Text.assemble(t_emp_plname, t_idx, t_task)
-            total = f"{out_emp_plname}{out_lvl} {out_idx}{out_task}"
-            con = Text(total, style=extrastyle)
+            out_lvl = f"{pllvl * num_indent * char_indent}"
+            t_skip = Text('run  ', style="bold green")
+            t_spc = Text(out_lvl)
+            t_it = Text(f"{out_idx}{out_task}", style=extrastyle)
 
         elif msg == 'WARN':
-            t_skip = Text('SKIP ', style="bold red")
-            t_spc = Text(out_lvl)
-            t_emp_plname = Text(f"{15*' '}")
-            t_it = Text(f" {out_idx}{out_task}", style=extrastyle)
-            con = Text.assemble(t_emp_plname, t_spc, t_skip, t_it)
+            t_skip = Text('skip ', style="bold red")
+            t_it = Text(f"{out_idx}{out_task}", style=extrastyle)
 
         elif msg == 'END':
             return
@@ -93,6 +104,7 @@ class ConsoleOutputHandler:
         else:
             con = "DEFAULT CASE: " + msg
 
+        con = Text.assemble(t_pt, t_spc, t_skip, t_it)
         outcon = con
         if type(con) == str:
             outcon = Text(con)

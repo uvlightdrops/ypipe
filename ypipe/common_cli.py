@@ -93,8 +93,9 @@ def work(ctx):
     plname = ctx.obj.get('plname')
     logger.debug("work group: app_name=%s, plname=%s", app_name, plname)
     ctx.obj['pl'] = create_ypipe_app(app_name=app_name, plname=plname)
-    ctx.obj['pl'].load_pipeline(plname)
-    ctx.obj['pl'].active_pipeline.load_task_definitions()
+    #ctx.obj['pl'].load_pipeline(plname)
+    ctx.obj['pl'].figure()
+    #ctx.obj['pl'].active_pipeline.load_task_definitions()
     ctx.obj['pl'].init_fc() #framecache()
 
 @cli.group()
@@ -154,7 +155,8 @@ def single(ctx, name):
 @click.pass_context
 def all(ctx):
     pl = ctx.obj['pl']
-    pl.active_pipeline.run_all()
+    pl.start_pipeline()
+    #pl.active_pipeline.run_all()
     print("FINISHED all")
 
 """

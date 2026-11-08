@@ -87,7 +87,7 @@ class Pipeline:
         self.config = kwargs.get('config')
         self.config_d = kwargs.get('config_d')
         #logger.debug(f"Pipeline {self.plname} config_d keys: {list(self.config_d.keys())}")
-        logger.debug(list(self.config_d.keys()))
+        #logger.debug(list(self.config_d.keys()))
 
         self._task_status_callbacks = []
         self._pipeline_status_callbacks = []
@@ -229,7 +229,7 @@ class Pipeline:
                 providers = []
                 for t_name, td in self.task_defs.items():
                     p_d = td.get('provides', {})
-                    #logger.debug(f"Checking task {t_name} for provides: {p_d}")
+                    logger.debug(f"Checking task {t_name} for provides: {p_d}")
                     p_keys = [v['key'] for p, v in p_d.items()]
                     #logger.debug(f"Task {t_name} provides : {p_keys}")
 
@@ -358,16 +358,17 @@ class Pipeline:
             context = self.prepare_context()
         self.context = context  # Kontext immer als Attribut speichern
 
-        # NOT ANYMORE - when sub is finished, the parent pipeline will use its own color again
         #print()
         pllvl = context.get_item('pllvl')
+        logger.debug('pllvl %s', pllvl)
         self.notify_log('START', pllvl=pllvl, plname=self.plname, is_subpipeline=self.is_subpipeline)
 
         #log_context(context, "Initial context before pipeline run")
         # keep runtime context available after run for callers who need to sync state
 
+        logger.debug(list(nx.topological_sort(self.G)))
         for name in nx.topological_sort(self.G):
-            #logger.debug(" 'run_all' calls _run_task %s", name)
+            logger.debug(" 'run_all' calls _run_task %s", name)
             #log_context(context, f"Before calling _run_task {name}")
             """
             # NEEDS to be in _run_task now, because of step runs
@@ -424,16 +425,15 @@ class Pipeline:
         self.notify_task_status(name, "started")
 
         task_def = self.task_defs[name]
-        #logger.debug('--- NEXT %s, action: %s', name, task_def['action'])
+        run_flag = str(task_def.get('run')).strip()
+        action = task_def.get('action')
+        logger.debug('action: %s, run_flag: %s', action, run_flag)
+
         # Graceful Stop: Wenn action=stop, Status melden und Rückgabe
-        # StopTask code not used anymore
-        logger.debug('action: %s', task_def.get('action'))
-        if task_def.get('action') == 'stop':
+        if action == 'stop' and run_flag != 'never':
             self.notify_task_status(name, "done")
             return 'PL stopped'
 
-        task = self.create_task(task_def, context)
-        run_flag = self.task_defs[name].get('run')
         skip_task = False
         out_task = None
         out_skip = None
@@ -454,7 +454,7 @@ class Pipeline:
 
         # runtime check if all required resources are in context
         requires = task_def.get('req_resources', [])
-        #logger.debug('Task %s requires: %s', name, requires)
+        logger.debug('Task %s requires: %s', name, requires)
         for req in requires:
             #if req not in context:
             if req not in context and not req in context['frame_groups'] and not req in context['frames']:
@@ -489,6 +489,7 @@ class Pipeline:
             task_name=name,
         )
 
+        task = self.create_task(task_def, context)
         if loop_items:
             task.run_with_loop()
         else:
@@ -520,7 +521,7 @@ class Pipeline:
             raise RuntimeError(f"Task {start_task_name} nicht gefunden!")
         # Nur die Tasks ab dem Start-Task ausführen
         for name in sorted_tasks[start_index:]:
-            self.notify_log('RUNNING', plname=self.plname, task_name=name)
+            self.notify_log('RUN', plname=self.plname, task_name=name)
 
             task = self.create_task(self.task_defs[name], context)
             result = task.run()
@@ -579,3 +580,6 @@ class Pipeline:
         self._step_order = None
         self._step_index = 0
         self._step_context = None
+
+
+
